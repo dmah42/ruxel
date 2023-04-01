@@ -120,7 +120,7 @@ impl Scene {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Self {
-        let eye = glam::Vec3::new(1.5f32, -5.0, 3.0);
+        let eye = glam::Vec3::new(0.5, 1.5, -5.0);
 
         // create vertex and index buffers
         let v_size = mem::size_of::<Vertex>();
@@ -282,7 +282,7 @@ impl Scene {
 
     fn generate_matrix(eye: glam::Vec3, aspect_ratio: f32) -> glam::Mat4 {
         let projection = glam::Mat4::perspective_rh(consts::FRAC_PI_4, aspect_ratio, 1.0, 100.0);
-        let view = glam::Mat4::look_at_rh(eye, glam::Vec3::ZERO, glam::Vec3::Z);
+        let view = glam::Mat4::look_to_rh(eye, glam::Vec3::Z, glam::Vec3::Y);
         projection * view
     }
 
@@ -372,6 +372,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut scene = Scene::new(&config, &adapter, &device, &queue);
 
     event_loop.run(move |event, _, control_flow| {
+        control_flow.set_poll();
+
         // closure needs to own the resources
         let _ = (&instance, &adapter, &device, &queue);
         *control_flow = ControlFlow::Wait;
@@ -386,6 +388,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 scene.resize(&config, &queue);
                 window.request_redraw();
             }
+            Event::MainEventsCleared => window.request_redraw(),
             Event::RedrawRequested(_) => {
                 let frame = surface
                     .get_current_texture()
@@ -413,10 +416,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 ElementState::Pressed => {
                     match keycode {
                         VirtualKeyCode::Left => {
-                            scene.eye.sub_assign(glam::Vec3::new(0.2, 0.0, 0.0));
+                            scene.eye.add_assign(glam::Vec3::new(0.2, 0.0, 0.0));
                         }
                         VirtualKeyCode::Right => {
-                            scene.eye.add_assign(glam::Vec3::new(0.2, 0.0, 0.0));
+                            scene.eye.sub_assign(glam::Vec3::new(0.2, 0.0, 0.0));
                         }
                         VirtualKeyCode::Up => {
                             scene.eye.add_assign(glam::Vec3::new(0.0, 0.2, 0.0));
