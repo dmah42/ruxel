@@ -1,9 +1,15 @@
-use std::{borrow::Cow, f32::consts, mem, num::NonZeroU32};
+use std::{
+    borrow::Cow,
+    f32::consts,
+    mem,
+    num::NonZeroU32,
+    ops::{AddAssign, SubAssign},
+};
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 use winit::{
-    event::{Event, WindowEvent},
+    event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
@@ -98,13 +104,13 @@ fn create_cube_texels(size: usize) -> Vec<u8> {
 }
 
 struct Scene {
+    eye: glam::Vec3,
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: usize,
     bind_group: wgpu::BindGroup,
     uniform_buf: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
-    _pipeline_wire: Option<wgpu::RenderPipeline>,
 }
 
 impl Scene {
@@ -114,17 +120,19 @@ impl Scene {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Self {
+        let eye = glam::Vec3::new(1.5f32, -5.0, 3.0);
+
         // create vertex and index buffers
         let v_size = mem::size_of::<Vertex>();
         let (v_data, i_data) = create_cube_vertices();
 
-        let v_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
             contents: bytemuck::cast_slice(&v_data),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let i_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("index buffer"),
             contents: bytemuck::cast_slice(&i_data),
             usage: wgpu::BufferUsages::INDEX,
@@ -193,7 +201,7 @@ impl Scene {
         );
 
         // other resources
-        let mx_total = Self::generate_matrix(config.width as f32 / config.height as f32);
+        let mx_total = Self::generate_matrix(eye, config.width as f32 / config.height as f32);
         let mx_ref: &[f32; 16] = mx_total.as_ref();
         let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("uniform buffer"),
@@ -262,33 +270,24 @@ impl Scene {
         });
 
         Scene {
-            vertex_buf: v_buf,
-            index_buf: i_buf,
+            eye,
+            vertex_buf,
+            index_buf,
             index_count: i_data.len(),
             bind_group,
             uniform_buf,
             pipeline,
-            _pipeline_wire: None,
         }
     }
 
-    fn generate_matrix(aspect_ratio: f32) -> glam::Mat4 {
-        let projection = glam::Mat4::perspective_rh(consts::FRAC_PI_4, aspect_ratio, 1.0, 10.0);
-        let view = glam::Mat4::look_at_rh(
-            glam::Vec3::new(1.5f32, -5.0, 3.0),
-            glam::Vec3::ZERO,
-            glam::Vec3::Z,
-        );
+    fn generate_matrix(eye: glam::Vec3, aspect_ratio: f32) -> glam::Mat4 {
+        let projection = glam::Mat4::perspective_rh(consts::FRAC_PI_4, aspect_ratio, 1.0, 100.0);
+        let view = glam::Mat4::look_at_rh(eye, glam::Vec3::ZERO, glam::Vec3::Z);
         projection * view
     }
 
-    fn resize(
-        &mut self,
-        config: &wgpu::SurfaceConfiguration,
-        _device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
-        let mx_total = Self::generate_matrix(config.width as f32 / config.height as f32);
+    fn resize(&mut self, config: &wgpu::SurfaceConfiguration, queue: &wgpu::Queue) {
+        let mx_total = Self::generate_matrix(self.eye, config.width as f32 / config.height as f32);
         let mx_ref: &[f32; 16] = mx_total.as_ref();
         queue.write_buffer(&self.uniform_buf, 0, bytemuck::cast_slice(mx_ref));
     }
@@ -384,7 +383,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 config.width = size.width;
                 config.height = size.height;
                 surface.configure(&device, &config);
-                scene.resize(&config, &device, &queue);
+                scene.resize(&config, &queue);
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
@@ -398,6 +397,40 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
                 frame.present();
             }
+            Event::WindowEvent {
+                event:
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                virtual_keycode: Some(keycode),
+                                state,
+                                ..
+                            },
+                        ..
+                    },
+                ..
+            } => match state {
+                ElementState::Pressed => {
+                    match keycode {
+                        VirtualKeyCode::Left => {
+                            scene.eye.sub_assign(glam::Vec3::new(0.2, 0.0, 0.0));
+                        }
+                        VirtualKeyCode::Right => {
+                            scene.eye.add_assign(glam::Vec3::new(0.2, 0.0, 0.0));
+                        }
+                        VirtualKeyCode::Up => {
+                            scene.eye.add_assign(glam::Vec3::new(0.0, 0.2, 0.0));
+                        }
+                        VirtualKeyCode::Down => {
+                            scene.eye.sub_assign(glam::Vec3::new(0.0, 0.2, 0.0));
+                        }
+                        _ => {}
+                    };
+                    scene.resize(&config, &queue);
+                    window.request_redraw();
+                }
+                _ => {}
+            },
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
