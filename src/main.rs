@@ -109,7 +109,8 @@ struct Scene {
     index_buf: wgpu::Buffer,
     index_count: usize,
     bind_group: wgpu::BindGroup,
-    uniform_buf: wgpu::Buffer,
+    object_transform_uniform_buf: wgpu::Buffer,
+    view_perspective_uniform_buf: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
 }
 
@@ -154,6 +155,16 @@ impl Scene {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(64),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Uint,
@@ -202,12 +213,22 @@ impl Scene {
 
         // other resources
         let mx_total = Self::generate_matrix(eye, config.width as f32 / config.height as f32);
-        let mx_ref: &[f32; 16] = mx_total.as_ref();
-        let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("uniform buffer"),
-            contents: bytemuck::cast_slice(mx_ref),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let mx_ref = mx_total.as_ref();
+        let view_perspective_uniform_buf =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("view perspective matrix  buffer"),
+                contents: bytemuck::cast_slice(mx_ref),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let object_mx_total = glam::Mat4::IDENTITY;
+        let object_mx_ref = object_mx_total.as_ref();
+        let object_transform_uniform_buf =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("object transform matrix buffer"),
+                contents: bytemuck::cast_slice(object_mx_ref),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
 
         // create bind group
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -215,10 +236,14 @@ impl Scene {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: uniform_buf.as_entire_binding(),
+                    resource: view_perspective_uniform_buf.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
+                    resource: object_transform_uniform_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
                     resource: wgpu::BindingResource::TextureView(&texture_view),
                 },
             ],
@@ -275,7 +300,8 @@ impl Scene {
             index_buf,
             index_count: i_data.len(),
             bind_group,
-            uniform_buf,
+            object_transform_uniform_buf,
+            view_perspective_uniform_buf,
             pipeline,
         }
     }
@@ -288,8 +314,12 @@ impl Scene {
 
     fn resize(&mut self, config: &wgpu::SurfaceConfiguration, queue: &wgpu::Queue) {
         let mx_total = Self::generate_matrix(self.eye, config.width as f32 / config.height as f32);
-        let mx_ref: &[f32; 16] = mx_total.as_ref();
-        queue.write_buffer(&self.uniform_buf, 0, bytemuck::cast_slice(mx_ref));
+        let mx_ref = mx_total.as_ref();
+        queue.write_buffer(
+            &self.view_perspective_uniform_buf,
+            0,
+            bytemuck::cast_slice(mx_ref),
+        );
     }
 
     fn render(&mut self, view: &wgpu::TextureView, device: &wgpu::Device, queue: &wgpu::Queue) {

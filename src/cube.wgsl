@@ -7,6 +7,10 @@ struct VertexOutput {
 @binding(0)
 var<uniform> view_projection: mat4x4<f32>;
 
+@group(0)
+@binding(1)
+var<uniform> object_transform: mat4x4<f32>;
+
 @vertex
 fn vs_main(
   @location(0) position: vec4<f32>,
@@ -14,12 +18,12 @@ fn vs_main(
 ) -> VertexOutput {
   var result: VertexOutput;
   result.tex_coord = tex_coord;
-  result.position = view_projection * position;
+  result.position = view_projection * object_transform * position;
   return result;
 }
 
 @group(0)
-@binding(1)
+@binding(2)
 var r_color: texture_2d<u32>;
 
 @fragment
