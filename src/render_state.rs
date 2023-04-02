@@ -1,3 +1,5 @@
+use crate::scene;
+use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 pub struct RenderState {
@@ -8,6 +10,7 @@ pub struct RenderState {
     config: wgpu::SurfaceConfiguration,
     window: Window,
     render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
 }
 
 impl RenderState {
@@ -81,7 +84,7 @@ impl RenderState {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[],
+                buffers: &[scene::Vertex::desc()],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -110,6 +113,12 @@ impl RenderState {
             multiview: None,
         });
 
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("vertex buffer"),
+            contents: bytemuck::cast_slice(scene::TRIANGLE),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
         Self {
             size,
             window,
@@ -118,6 +127,7 @@ impl RenderState {
             queue,
             config,
             render_pipeline,
+            vertex_buffer,
         }
     }
 
@@ -164,7 +174,8 @@ impl RenderState {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw(0..3, 0..1);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.draw(0..scene::TRIANGLE.len() as u32, 0..1);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

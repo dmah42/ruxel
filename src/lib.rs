@@ -1,4 +1,5 @@
 mod render_state;
+mod scene;
 
 use render_state::RenderState;
 use winit::{
