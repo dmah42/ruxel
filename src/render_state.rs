@@ -11,6 +11,8 @@ pub struct RenderState {
     window: Window,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
 }
 
 impl RenderState {
@@ -115,9 +117,17 @@ impl RenderState {
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
-            contents: bytemuck::cast_slice(scene::TRIANGLE),
+            //contents: bytemuck::cast_slice(scene::TRIANGLE),
+            contents: bytemuck::cast_slice(scene::PENTAGON),
             usage: wgpu::BufferUsages::VERTEX,
         });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("index buffer"),
+            contents: bytemuck::cast_slice(scene::PENTAGON_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let num_indices = scene::PENTAGON_INDICES.len() as u32;
 
         Self {
             size,
@@ -128,6 +138,8 @@ impl RenderState {
             config,
             render_pipeline,
             vertex_buffer,
+            index_buffer,
+            num_indices,
         }
     }
 
@@ -175,7 +187,8 @@ impl RenderState {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..scene::TRIANGLE.len() as u32, 0..1);
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
