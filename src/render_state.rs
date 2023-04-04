@@ -163,16 +163,19 @@ impl RenderState {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
             //contents: bytemuck::cast_slice(scene::TRIANGLE),
-            contents: bytemuck::cast_slice(scene::PENTAGON),
+            //contents: bytemuck::cast_slice(scene::PENTAGON),
+            contents: bytemuck::cast_slice(scene::CUBE),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("index buffer"),
-            contents: bytemuck::cast_slice(scene::PENTAGON_INDICES),
+            //contents: bytemuck::cast_slice(scene::PENTAGON_INDICES),
+            contents: bytemuck::cast_slice(scene::CUBE_INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
-        let num_indices = scene::PENTAGON_INDICES.len() as u32;
+        //let num_indices = scene::PENTAGON_INDICES.len() as u32;
+        let num_indices = scene::CUBE_INDICES.len() as u32;
 
         Self {
             size,
