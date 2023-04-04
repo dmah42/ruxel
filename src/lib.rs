@@ -2,6 +2,7 @@ mod camera;
 mod instance;
 mod render_state;
 mod scene;
+mod texture;
 
 use render_state::RenderState;
 use winit::{
