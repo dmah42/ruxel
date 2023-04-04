@@ -2,8 +2,9 @@ use bytemuck::{Pod, Zeroable};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-struct RawInstance {
+pub struct RawInstance {
     model: [f32; 16],
+    normal: [f32; 9],
 }
 
 pub struct Instance {
@@ -16,10 +17,13 @@ impl Instance {
         Self { position, rotation }
     }
 
-    pub fn to_raw(&self) -> [f32; 16] {
-        (glam::Mat4::from_translation(self.position) * glam::Mat4::from_quat(self.rotation))
-            .as_ref()
-            .to_owned()
+    pub fn to_raw(&self) -> RawInstance {
+        let model =
+            glam::Mat4::from_translation(self.position) * glam::Mat4::from_quat(self.rotation);
+        RawInstance {
+            model: model.as_ref().to_owned(),
+            normal: glam::Mat3::from_quat(self.rotation).as_ref().to_owned(),
+        }
     }
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -52,6 +56,21 @@ impl Instance {
                     offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
                     shader_location: 8,
                     format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
+                    shader_location: 9,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 19]>() as wgpu::BufferAddress,
+                    shader_location: 10,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 22]>() as wgpu::BufferAddress,
+                    shader_location: 11,
+                    format: wgpu::VertexFormat::Float32x3,
                 },
             ],
         }
