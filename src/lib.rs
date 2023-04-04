@@ -1,4 +1,5 @@
 mod camera;
+mod instance;
 mod render_state;
 mod scene;
 

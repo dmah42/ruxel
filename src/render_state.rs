@@ -1,4 +1,4 @@
-use crate::{camera, camera::Camera, scene};
+use crate::{camera, camera::Camera, instance::Instance, scene};
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
@@ -9,9 +9,13 @@ pub struct RenderState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     render_pipeline: wgpu::RenderPipeline,
+
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
+
+    instances: Vec<Instance>,
+    instance_buffer: wgpu::Buffer,
 
     camera: Camera,
     camera_uniform: camera::Uniform,
@@ -77,7 +81,7 @@ impl RenderState {
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
         let camera = Camera {
-            eye: glam::Vec3::new(0.0, 1.0, 2.0),
+            eye: glam::Vec3::new(0.5, 2.0, 5.0),
             target: glam::Vec3::ZERO,
             up: glam::Vec3::Y,
             aspect: config.width as f32 / config.height as f32,
@@ -131,7 +135,7 @@ impl RenderState {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[scene::Vertex::desc()],
+                buffers: &[scene::Vertex::desc(), Instance::desc()],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -162,20 +166,41 @@ impl RenderState {
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
-            //contents: bytemuck::cast_slice(scene::TRIANGLE),
-            //contents: bytemuck::cast_slice(scene::PENTAGON),
             contents: bytemuck::cast_slice(scene::CUBE),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("index buffer"),
-            //contents: bytemuck::cast_slice(scene::PENTAGON_INDICES),
             contents: bytemuck::cast_slice(scene::CUBE_INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
-        //let num_indices = scene::PENTAGON_INDICES.len() as u32;
         let num_indices = scene::CUBE_INDICES.len() as u32;
+
+        const NUM_CUBES_PER_ROW: u32 = 10;
+
+        let instances = (0..NUM_CUBES_PER_ROW)
+            .flat_map(|z| {
+                (0..NUM_CUBES_PER_ROW).map(move |x| {
+                    let position = glam::Vec3::new(-2.0 * (x as f32), 0.0, 2.0 * (z as f32));
+                    //let rotation = if position.length_squared() == 0.0 {
+                    //    glam::Quat::from_axis_angle(glam::Vec3::Z, 0.0)
+                    //} else {
+                    //    glam::Quat::from_axis_angle(position.normalize(), 45.0)
+                    //};
+                    let rotation = glam::Quat::from_axis_angle(glam::Vec3::Z, 0.0);
+
+                    Instance::new(position, rotation)
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("instance buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
         Self {
             size,
@@ -191,6 +216,8 @@ impl RenderState {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            instances,
+            instance_buffer,
         }
     }
 
@@ -248,8 +275,9 @@ impl RenderState {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
