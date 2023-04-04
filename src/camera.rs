@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event::{ElementState, KeyboardInput, WindowEvent};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -59,29 +59,30 @@ impl Controller {
     pub fn process_events(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    },
+                input: KeyboardInput {
+                    state, scancode, ..
+                },
                 ..
             } => {
                 let is_pressed = *state == ElementState::Pressed;
-                match keycode {
-                    VirtualKeyCode::W | VirtualKeyCode::Up => {
+                match scancode {
+                    // W | Up
+                    13 | 126 => {
                         self.is_forward = is_pressed;
                         true
                     }
-                    VirtualKeyCode::A | VirtualKeyCode::Left => {
+                    // A | Left
+                    0 | 123 => {
                         self.is_left = is_pressed;
                         true
                     }
-                    VirtualKeyCode::S | VirtualKeyCode::Down => {
+                    // S | Down
+                    1 | 125 => {
                         self.is_backward = is_pressed;
                         true
                     }
-                    VirtualKeyCode::D | VirtualKeyCode::Right => {
+                    // D | Right
+                    2 | 124 => {
                         self.is_right = is_pressed;
                         true
                     }
