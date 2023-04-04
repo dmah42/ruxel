@@ -1,5 +1,6 @@
 mod camera;
 mod instance;
+mod light;
 mod render_state;
 mod scene;
 mod texture;
@@ -70,6 +71,7 @@ impl Ruxel {
     }
 
     fn update(&mut self) {
+        // TODO: update light.
         self.camera_controller.update_camera(self.state.camera());
         self.state.update();
     }

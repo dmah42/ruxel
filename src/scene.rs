@@ -1,4 +1,4 @@
-use crate::{instance::Instance, vertex::Vertex};
+use crate::{instance::Instance, light::Light, vertex::Vertex};
 use wgpu::util::DeviceExt;
 
 pub struct Scene {
@@ -8,6 +8,9 @@ pub struct Scene {
 
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
+
+    light: Light,
+    light_buffer: wgpu::Buffer,
 }
 
 impl Scene {
@@ -51,6 +54,13 @@ impl Scene {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
+        let light = Light::new(glam::Vec3::new(2.0, 2.0, 2.0), wgpu::Color::WHITE);
+        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("light buffer"),
+            contents: bytemuck::cast_slice(&[light.to_raw()]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         Self {
             vertex_buffer,
             index_buffer,
@@ -58,6 +68,9 @@ impl Scene {
 
             instances,
             instance_buffer,
+
+            light,
+            light_buffer,
         }
     }
 
@@ -80,10 +93,25 @@ impl Scene {
     pub fn num_instances(&self) -> u32 {
         self.instances.len() as u32
     }
+
+    pub fn light(&self) -> &Light {
+        &self.light
+    }
+
+    pub fn light_buffer(&self) -> &wgpu::Buffer {
+        &self.light_buffer
+    }
+
+    pub fn update(&mut self) {
+        // move the light
+        let old_light_position = self.light.position;
+        self.light.position =
+            glam::Quat::from_axis_angle(glam::Vec3::Y, 0.002) * old_light_position;
+    }
 }
 
-const fn vertex(pos: [i8; 3], c: [f32; 3]) -> Vertex {
-    Vertex::new([pos[0] as f32, pos[1] as f32, pos[2] as f32], c)
+const fn vertex(pos: [i8; 3], c: [f32; 3], n: [f32; 3]) -> Vertex {
+    Vertex::new([pos[0] as f32, pos[1] as f32, pos[2] as f32], c, n)
 }
 
 const GRASSES: [[f32; 3]; 6] = [
@@ -97,35 +125,35 @@ const GRASSES: [[f32; 3]; 6] = [
 
 const CUBE: &[Vertex] = &[
     // top (0, 0, 1)
-    vertex([-1, -1, 1], GRASSES[1]),
-    vertex([1, -1, 1], GRASSES[0]),
-    vertex([1, 1, 1], GRASSES[2]),
-    vertex([-1, 1, 1], GRASSES[3]),
+    vertex([-1, -1, 1], GRASSES[1], [0.0, 0.0, 1.0]),
+    vertex([1, -1, 1], GRASSES[0], [0.0, 0.0, 1.0]),
+    vertex([1, 1, 1], GRASSES[2], [0.0, 0.0, 1.0]),
+    vertex([-1, 1, 1], GRASSES[3], [0.0, 0.0, 1.0]),
     // bottom (0, 0, -1)
-    vertex([-1, 1, -1], GRASSES[4]),
-    vertex([1, 1, -1], GRASSES[5]),
-    vertex([1, -1, -1], GRASSES[0]),
-    vertex([-1, -1, -1], GRASSES[2]),
+    vertex([-1, 1, -1], GRASSES[4], [0.0, 0.0, -1.0]),
+    vertex([1, 1, -1], GRASSES[5], [0.0, 0.0, -1.0]),
+    vertex([1, -1, -1], GRASSES[0], [0.0, 0.0, -1.0]),
+    vertex([-1, -1, -1], GRASSES[2], [0.0, 0.0, -1.0]),
     // right (1, 0, 0)
-    vertex([1, -1, -1], GRASSES[0]),
-    vertex([1, 1, -1], GRASSES[5]),
-    vertex([1, 1, 1], GRASSES[2]),
-    vertex([1, -1, 1], GRASSES[0]),
+    vertex([1, -1, -1], GRASSES[0], [1.0, 0.0, 0.0]),
+    vertex([1, 1, -1], GRASSES[5], [1.0, 0.0, 0.0]),
+    vertex([1, 1, 1], GRASSES[2], [1.0, 0.0, 0.0]),
+    vertex([1, -1, 1], GRASSES[0], [1.0, 0.0, 0.0]),
     // left (-1, 0, 0)
-    vertex([-1, -1, 1], GRASSES[1]),
-    vertex([-1, 1, 1], GRASSES[3]),
-    vertex([-1, 1, -1], GRASSES[4]),
-    vertex([-1, -1, -1], GRASSES[2]),
+    vertex([-1, -1, 1], GRASSES[1], [-1.0, 0.0, 0.0]),
+    vertex([-1, 1, 1], GRASSES[3], [-1.0, 0.0, 0.0]),
+    vertex([-1, 1, -1], GRASSES[4], [-1.0, 0.0, 0.0]),
+    vertex([-1, -1, -1], GRASSES[2], [-1.0, 0.0, 0.0]),
     // front (0, 1, 0)
-    vertex([1, 1, -1], GRASSES[5]),
-    vertex([-1, 1, -1], GRASSES[4]),
-    vertex([-1, 1, 1], GRASSES[3]),
-    vertex([1, 1, 1], GRASSES[2]),
+    vertex([1, 1, -1], GRASSES[5], [0.0, 1.0, 0.0]),
+    vertex([-1, 1, -1], GRASSES[4], [0.0, 1.0, 0.0]),
+    vertex([-1, 1, 1], GRASSES[3], [0.0, 1.0, 0.0]),
+    vertex([1, 1, 1], GRASSES[2], [0.0, 1.0, 0.0]),
     // back (0, -1, 0)
-    vertex([1, -1, 1], GRASSES[0]),
-    vertex([-1, -1, 1], GRASSES[1]),
-    vertex([-1, -1, -1], GRASSES[2]),
-    vertex([1, -1, -1], GRASSES[0]),
+    vertex([1, -1, 1], GRASSES[0], [0.0, -1.0, 0.0]),
+    vertex([-1, -1, 1], GRASSES[1], [0.0, -1.0, 0.0]),
+    vertex([-1, -1, -1], GRASSES[2], [0.0, -1.0, 0.0]),
+    vertex([1, -1, -1], GRASSES[0], [0.0, -1.0, 0.0]),
 ];
 
 const CUBE_INDICES: &[u16] = &[

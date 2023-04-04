@@ -20,6 +20,8 @@ pub struct RenderState {
     camera_uniform: camera::Uniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+
+    light_bind_group: wgpu::BindGroup,
 }
 
 impl RenderState {
@@ -81,6 +83,9 @@ impl RenderState {
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
+        let scene = Scene::new(&device);
+
+        // TODO: make the camera part of the scene?
         let camera = Camera {
             eye: glam::Vec3::new(0.5, 2.0, 5.0),
             target: glam::Vec3::ZERO,
@@ -123,10 +128,33 @@ impl RenderState {
             }],
         });
 
+        let light_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &light_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: scene.light_buffer().as_entire_binding(),
+            }],
+            label: Some("light bind group"),
+        });
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("render pipeline layout"),
-                bind_group_layouts: &[&camera_bind_group_layout],
+                bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -171,8 +199,6 @@ impl RenderState {
             multiview: None,
         });
 
-        let scene = Scene::new(&device);
-
         Self {
             size,
             surface,
@@ -186,6 +212,7 @@ impl RenderState {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            light_bind_group,
         }
     }
 
@@ -194,11 +221,19 @@ impl RenderState {
     }
 
     pub fn update(&mut self) {
+        self.scene.update();
+
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+
+        self.queue.write_buffer(
+            &self.scene.light_buffer(),
+            0,
+            bytemuck::cast_slice(&[self.scene.light().to_raw()]),
         );
     }
 
@@ -251,6 +286,7 @@ impl RenderState {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.light_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.scene.vertex_buffer().slice(..));
             render_pass.set_vertex_buffer(1, self.scene.instance_buffer().slice(..));
             render_pass.set_index_buffer(
