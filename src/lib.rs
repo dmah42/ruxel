@@ -3,6 +3,7 @@ mod instance;
 mod render_state;
 mod scene;
 mod texture;
+mod vertex;
 
 use render_state::RenderState;
 use winit::{

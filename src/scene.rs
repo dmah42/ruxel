@@ -1,73 +1,91 @@
-use bytemuck::{Pod, Zeroable};
+use crate::{instance::Instance, vertex::Vertex};
+use wgpu::util::DeviceExt;
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub struct Vertex {
-    position: [f32; 3],
-    color: [f32; 3],
+pub struct Scene {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+
+    instances: Vec<Instance>,
+    instance_buffer: wgpu::Buffer,
 }
 
-impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+impl Scene {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("vertex buffer"),
+            contents: bytemuck::cast_slice(CUBE),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBS,
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("index buffer"),
+            contents: bytemuck::cast_slice(CUBE_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let num_indices = CUBE_INDICES.len() as u32;
+
+        const NUM_CUBES_PER_ROW: u32 = 10;
+
+        let instances = (0..NUM_CUBES_PER_ROW)
+            .flat_map(|z| {
+                (0..NUM_CUBES_PER_ROW).map(move |x| {
+                    let position = glam::Vec3::new(-2.0 * (x as f32), 0.0, 2.0 * (z as f32));
+                    //let rotation = if position.length_squared() == 0.0 {
+                    //    glam::Quat::from_axis_angle(glam::Vec3::Z, 0.0)
+                    //} else {
+                    //    glam::Quat::from_axis_angle(position.normalize(), 45.0)
+                    //};
+                    let rotation = glam::Quat::from_axis_angle(glam::Vec3::Z, 0.0);
+
+                    Instance::new(position, rotation)
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("instance buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        Self {
+            vertex_buffer,
+            index_buffer,
+            num_indices,
+
+            instances,
+            instance_buffer,
         }
     }
-}
 
-//pub const TRIANGLE: &[Vertex] = &[
-//    Vertex {
-//        position: glam::Vec3::new(0.0, 0.5, 0.0).to_array(),
-//        color: [1.0, 0.0, 0.0],
-//    },
-//    Vertex {
-//        position: glam::Vec3::new(-0.5, -0.5, 0.0).to_array(),
-//        color: [0.0, 1.0, 0.0],
-//    },
-//    Vertex {
-//        position: glam::Vec3::new(0.5, -0.5, 0.0).to_array(),
-//        color: [0.0, 0.0, 1.0],
-//    },
-//];
-//
-//pub const PENTAGON: &[Vertex] = &[
-//    Vertex {
-//        position: [-0.0868241, 0.49240386, 0.0],
-//        color: [0.5, 0.0, 0.0],
-//    }, // A
-//    Vertex {
-//        position: [-0.49513406, 0.06958647, 0.0],
-//        color: [0.5, 0.5, 0.0],
-//    }, // B
-//    Vertex {
-//        position: [-0.21918549, -0.44939706, 0.0],
-//        color: [0.0, 0.5, 0.0],
-//    }, // C
-//    Vertex {
-//        position: [0.35966998, -0.3473291, 0.0],
-//        color: [0.0, 0.5, 0.5],
-//    }, // D
-//    Vertex {
-//        position: [0.44147372, 0.2347359, 0.0],
-//        color: [0.0, 0.0, 0.5],
-//    }, // E
-//];
-//
-//pub const PENTAGON_INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
+    pub fn vertex_buffer(&self) -> &wgpu::Buffer {
+        &self.vertex_buffer
+    }
 
-const fn vertex(pos: [i8; 3], c: [f32; 3]) -> Vertex {
-    Vertex {
-        position: [pos[0] as f32, pos[1] as f32, pos[2] as f32],
-        color: c,
+    pub fn index_buffer(&self) -> &wgpu::Buffer {
+        &self.index_buffer
+    }
+
+    pub fn num_indices(&self) -> u32 {
+        self.num_indices
+    }
+
+    pub fn instance_buffer(&self) -> &wgpu::Buffer {
+        &self.instance_buffer
+    }
+
+    pub fn num_instances(&self) -> u32 {
+        self.instances.len() as u32
     }
 }
 
-pub const CUBE: &[Vertex] = &[
+const fn vertex(pos: [i8; 3], c: [f32; 3]) -> Vertex {
+    Vertex::new([pos[0] as f32, pos[1] as f32, pos[2] as f32], c)
+}
+
+const CUBE: &[Vertex] = &[
     // top (0, 0, 1)
     vertex([-1, -1, 1], [0.0, 0.0, 0.0]),
     vertex([1, -1, 1], [0.5, 0.0, 0.0]),
@@ -100,7 +118,7 @@ pub const CUBE: &[Vertex] = &[
     vertex([1, -1, -1], [0.5, 0.0, 0.5]),
 ];
 
-pub const CUBE_INDICES: &[u16] = &[
+const CUBE_INDICES: &[u16] = &[
     0, 1, 2, 2, 3, 0, // top
     4, 5, 6, 6, 7, 4, // bottom
     8, 9, 10, 10, 11, 8, // right
