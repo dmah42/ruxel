@@ -13,11 +13,9 @@ cfg-if = "1"
 bytemuck = { version = "1.13.*", features = ["derive"] }
 env_logger = "0.10.*"
 glam = "0.23.*"
-#lazy_static = "1.1.*"
 log = "0.4.*"
-pollster = "0.3.*"
+pollster = { version = "0.3.*", features = ["macro"] }
 wgpu = "0.15.*"
-#wgpu-hal = "0.15.*"
 winit = "0.28.*"
 
 [target.'cfg(target_arch = "wasm_32")'.dependencies]

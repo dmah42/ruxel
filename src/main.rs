@@ -1,5 +1,7 @@
-use ruxel::run;
+use ruxel::Ruxel;
 
-fn main() {
-    pollster::block_on(run());
+#[pollster::main]
+async fn main() {
+    let ruxel = Ruxel::new().await;
+    pollster::block_on(ruxel.run());
 }
