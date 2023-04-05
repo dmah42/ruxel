@@ -1,4 +1,7 @@
+use std::time::Duration;
+
 use crate::{instance::Instance, light::Light, vertex::Vertex};
+use glam::{Quat, Vec3};
 use wgpu::util::DeviceExt;
 
 pub struct Scene {
@@ -33,14 +36,14 @@ impl Scene {
         let instances = (0..NUM_CUBES_PER_ROW)
             .flat_map(|z| {
                 (0..NUM_CUBES_PER_ROW).map(move |x| {
-                    let start = glam::Vec3::new(
+                    let start = Vec3::new(
                         NUM_CUBES_PER_ROW as f32 * -1.0,
                         -0.5,
                         NUM_CUBES_PER_ROW as f32 * -1.0,
                     );
-                    let position = start
-                        + glam::Vec3::new(x as f32 * 2.0, ((x + z) as f32).sin(), z as f32 * 2.0);
-                    let rotation = glam::Quat::from_axis_angle(glam::Vec3::Z, 0.0);
+                    let position =
+                        start + Vec3::new(x as f32 * 2.0, ((x + z) as f32).sin(), z as f32 * 2.0);
+                    let rotation = Quat::from_axis_angle(Vec3::Z, 0.0);
 
                     Instance::new(position, rotation)
                 })
@@ -54,7 +57,7 @@ impl Scene {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let light = Light::new(glam::Vec3::new(2.0, 2.0, 2.0), wgpu::Color::WHITE);
+        let light = Light::new(Vec3::new(5.0, 2.0, 5.0), wgpu::Color::WHITE);
         let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("light buffer"),
             contents: bytemuck::cast_slice(&[light.to_raw()]),
@@ -102,11 +105,11 @@ impl Scene {
         &self.light_buffer
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, dt: Duration) {
         // move the light
         let old_light_position = self.light.position;
         self.light.position =
-            glam::Quat::from_axis_angle(glam::Vec3::Y, 0.002) * old_light_position;
+            Quat::from_axis_angle(Vec3::X, 0.1 * dt.as_secs_f32()) * old_light_position;
     }
 }
 

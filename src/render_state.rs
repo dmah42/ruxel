@@ -1,3 +1,8 @@
+use std::{
+    f32::consts::{FRAC_PI_2, PI},
+    time::Duration,
+};
+
 use crate::{
     camera, camera::Camera, instance::Instance, scene::Scene, texture::Texture, vertex::Vertex,
 };
@@ -86,15 +91,15 @@ impl RenderState {
         let scene = Scene::new(&device);
 
         // TODO: make the camera part of the scene?
-        let camera = Camera {
-            eye: glam::Vec3::new(0.5, 2.0, 5.0),
-            target: glam::Vec3::ZERO,
-            up: glam::Vec3::Y,
-            aspect: config.width as f32 / config.height as f32,
-            fovy: 45.0,
-            znear: 0.1,
-            zfar: 100.0,
-        };
+        let camera = Camera::new(
+            glam::Vec3::new(0.0, 5.0, 10.0),
+            -FRAC_PI_2,
+            -PI / 9.0,
+            config.width as f32 / config.height as f32,
+            45.0,
+            0.1,
+            100.0,
+        );
 
         let mut camera_uniform = camera::Uniform::new();
         camera_uniform.update_view_proj(&camera);
@@ -220,8 +225,8 @@ impl RenderState {
         &mut self.camera
     }
 
-    pub fn update(&mut self) {
-        self.scene.update();
+    pub fn update(&mut self, dt: Duration) {
+        self.scene.update(dt);
 
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(

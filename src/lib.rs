@@ -6,6 +6,8 @@ mod scene;
 mod texture;
 mod vertex;
 
+use std::time::{Duration, Instant};
+
 use render_state::RenderState;
 use winit::{
     event::*,
@@ -23,6 +25,7 @@ pub struct Ruxel {
     window: Window,
     state: RenderState,
     camera_controller: camera::Controller,
+    mouse_pressed: bool,
 }
 
 impl Ruxel {
@@ -62,18 +65,40 @@ impl Ruxel {
             event_loop: Some(event_loop),
             window,
             state,
-            camera_controller: camera::Controller::new(0.2),
+            camera_controller: camera::Controller::new(4.0, 0.4),
+            mouse_pressed: false,
         }
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        self.camera_controller.process_events(event)
+        match event {
+            WindowEvent::KeyboardInput {
+                input: KeyboardInput {
+                    scancode, state, ..
+                },
+                ..
+            } => self.camera_controller.process_keyboard(*state, *scancode),
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.camera_controller.process_scroll(delta);
+                true
+            }
+            WindowEvent::MouseInput {
+                button: MouseButton::Left,
+                state,
+                ..
+            } => {
+                self.mouse_pressed = *state == ElementState::Pressed;
+                true
+            }
+            _ => false,
+        }
     }
 
-    fn update(&mut self) {
+    fn update(&mut self, dt: Duration) {
         // TODO: update light.
-        self.camera_controller.update_camera(self.state.camera());
-        self.state.update();
+        self.camera_controller
+            .update_camera(self.state.camera(), dt);
+        self.state.update(dt);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
@@ -83,49 +108,63 @@ impl Ruxel {
             .take()
             .expect("unexpected lack of event loop");
 
-        event_loop.run(move |event, _, control_flow| match event {
-            Event::RedrawRequested(window_id) if window_id == self.window.id() => {
-                self.update();
-                match self.state.render() {
-                    Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost) => self.state.resize(self.state.size),
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        println!("out of memory");
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    Err(e) => eprintln!("{:?}", e),
-                }
-            }
-            Event::MainEventsCleared => {
-                self.window.request_redraw();
-            }
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == self.window.id() => {
-                if !self.input(event) {
-                    match event {
-                        WindowEvent::CloseRequested
-                        | WindowEvent::KeyboardInput {
-                            input:
-                                KeyboardInput {
-                                    state: ElementState::Pressed,
-                                    virtual_keycode: Some(VirtualKeyCode::Escape),
-                                    ..
-                                },
-                            ..
-                        } => *control_flow = ControlFlow::Exit,
-                        WindowEvent::Resized(physical_size) => {
-                            self.state.resize(*physical_size);
+        let mut last_render_time = Instant::now();
+
+        event_loop.run(move |event, _, control_flow| {
+            *control_flow = ControlFlow::Poll;
+
+            match event {
+                Event::RedrawRequested(window_id) if window_id == self.window.id() => {
+                    let now = Instant::now();
+                    let dt = now - last_render_time;
+                    last_render_time = now;
+                    self.update(dt);
+                    match self.state.render() {
+                        Ok(_) => {}
+                        Err(wgpu::SurfaceError::Lost) => self.state.resize(self.state.size),
+                        Err(wgpu::SurfaceError::OutOfMemory) => {
+                            println!("out of memory");
+                            *control_flow = ControlFlow::Exit;
                         }
-                        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                            self.state.resize(**new_inner_size);
-                        }
-                        _ => {}
+                        Err(e) => eprintln!("{:?}", e),
                     }
                 }
+                Event::MainEventsCleared => {
+                    self.window.request_redraw();
+                }
+                Event::DeviceEvent {
+                    event: DeviceEvent::MouseMotion { delta },
+                    ..
+                } => {
+                    if self.mouse_pressed {
+                        self.camera_controller.process_mouse(delta.0, delta.1)
+                    }
+                }
+                Event::WindowEvent {
+                    ref event,
+                    window_id,
+                } if window_id == self.window.id() && !self.input(event) => match event {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    WindowEvent::CloseRequested
+                    | WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(VirtualKeyCode::Escape),
+                                ..
+                            },
+                        ..
+                    } => *control_flow = ControlFlow::Exit,
+                    WindowEvent::Resized(physical_size) => {
+                        self.state.resize(*physical_size);
+                    }
+                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        self.state.resize(**new_inner_size);
+                    }
+                    _ => {}
+                },
+                _ => {}
             }
-            _ => {}
         });
     }
 }
