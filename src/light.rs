@@ -23,12 +23,12 @@ impl Light {
     pub fn to_raw(&self) -> RawLight {
         RawLight {
             position: [self.position.x, self.position.y, self.position.z],
+            _padding: 0,
             color: [
                 self.color.r as f32,
                 self.color.g as f32,
                 self.color.b as f32,
             ],
-            _padding: 0,
             _padding2: 0,
         }
     }

@@ -5,24 +5,29 @@ use bytemuck::{Pod, Zeroable};
 pub struct RawInstance {
     model: [f32; 16],
     normal: [f32; 9],
+    color: [f32; 3],
 }
 
 pub struct Instance {
     position: glam::Vec3,
-    rotation: glam::Quat,
+    color: wgpu::Color,
 }
 
 impl Instance {
-    pub fn new(position: glam::Vec3, rotation: glam::Quat) -> Self {
-        Self { position, rotation }
+    pub fn new(position: glam::Vec3, color: wgpu::Color) -> Self {
+        Self { position, color }
     }
 
     pub fn to_raw(&self) -> RawInstance {
-        let model =
-            glam::Mat4::from_translation(self.position) * glam::Mat4::from_quat(self.rotation);
+        let model = glam::Mat4::from_translation(self.position);
         RawInstance {
             model: model.as_ref().to_owned(),
-            normal: glam::Mat3::from_quat(self.rotation).as_ref().to_owned(),
+            normal: glam::Mat3::IDENTITY.as_ref().to_owned(),
+            color: [
+                self.color.r as f32,
+                self.color.g as f32,
+                self.color.b as f32,
+            ],
         }
     }
 
@@ -57,6 +62,7 @@ impl Instance {
                     shader_location: 8,
                     format: wgpu::VertexFormat::Float32x4,
                 },
+                // normal
                 wgpu::VertexAttribute {
                     offset: mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
                     shader_location: 9,
@@ -70,6 +76,12 @@ impl Instance {
                 wgpu::VertexAttribute {
                     offset: mem::size_of::<[f32; 22]>() as wgpu::BufferAddress,
                     shader_location: 11,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                // color
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 25]>() as wgpu::BufferAddress,
+                    shader_location: 12,
                     format: wgpu::VertexFormat::Float32x3,
                 },
             ],

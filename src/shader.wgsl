@@ -12,8 +12,7 @@ struct LightUniform {
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
-  @location(1) color: vec3<f32>,
-  @location(2) normal: vec3<f32>,
+  @location(1) normal: vec3<f32>,
 };
 
 struct InstanceInput {
@@ -25,6 +24,8 @@ struct InstanceInput {
   @location(9) normal_matrix_0: vec3<f32>,
   @location(10) normal_matrix_1: vec3<f32>,
   @location(11) normal_matrix_2: vec3<f32>,
+
+  @location(12) color: vec3<f32>,
 };
 
 struct VertexOutput {
@@ -50,7 +51,7 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
   );
 
   var out: VertexOutput;
-  out.color = model.color;
+  out.color = instance.color;
   out.world_normal = normal_matrix * model.normal;
   var world_position: vec4<f32> = model_matrix * vec4<f32>(model.position, 1.0);
   out.world_position = world_position.xyz;

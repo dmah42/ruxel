@@ -1,14 +1,23 @@
 use std::time::Duration;
 
-use crate::{instance::Instance, light::Light, vertex::Vertex};
+use crate::{
+    block::{self, Block},
+    instance::Instance,
+    light::Light,
+};
 use glam::{Quat, Vec3};
+use rand::Rng;
 use wgpu::util::DeviceExt;
+
+type Chunk = [[[Block; 16]; 16]; 16];
 
 pub struct Scene {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
 
+    // TODO: multiple chunks
+    chunk: Chunk,
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
 
@@ -20,35 +29,19 @@ impl Scene {
     pub fn new(device: &wgpu::Device) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
-            contents: bytemuck::cast_slice(CUBE),
+            contents: bytemuck::cast_slice(Block::VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("index buffer"),
-            contents: bytemuck::cast_slice(CUBE_INDICES),
+            contents: bytemuck::cast_slice(Block::INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
-        let num_indices = CUBE_INDICES.len() as u32;
+        let num_indices = Block::INDICES.len() as u32;
 
-        const NUM_CUBES_PER_ROW: u32 = 10;
-
-        let instances = (0..NUM_CUBES_PER_ROW)
-            .flat_map(|z| {
-                (0..NUM_CUBES_PER_ROW).map(move |x| {
-                    let start = Vec3::new(
-                        NUM_CUBES_PER_ROW as f32 * -1.0,
-                        -0.5,
-                        NUM_CUBES_PER_ROW as f32 * -1.0,
-                    );
-                    let position =
-                        start + Vec3::new(x as f32 * 2.0, ((x + z) as f32).sin(), z as f32 * 2.0);
-                    let rotation = Quat::from_axis_angle(Vec3::Z, 0.0);
-
-                    Instance::new(position, rotation)
-                })
-            })
-            .collect::<Vec<_>>();
+        let chunk = Self::create_chunk();
+        let instances = Self::create_instances(chunk);
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -57,7 +50,7 @@ impl Scene {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let light = Light::new(Vec3::new(5.0, 2.0, 5.0), wgpu::Color::WHITE);
+        let light = Light::new(Vec3::new(100.0, 2.0, 50.0), wgpu::Color::WHITE);
         let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("light buffer"),
             contents: bytemuck::cast_slice(&[light.to_raw()]),
@@ -74,6 +67,8 @@ impl Scene {
 
             light,
             light_buffer,
+
+            chunk,
         }
     }
 
@@ -109,61 +104,45 @@ impl Scene {
         // move the light
         let old_light_position = self.light.position;
         self.light.position =
-            Quat::from_axis_angle(Vec3::X, 0.1 * dt.as_secs_f32()) * old_light_position;
+            Quat::from_axis_angle(Vec3::Y, 0.2 * dt.as_secs_f32()) * old_light_position;
+    }
+
+    fn create_chunk() -> Chunk {
+        let mut rng = rand::thread_rng();
+        let mut chunk = [[[Block::new(block::Type::Inactive); 16]; 16]; 16];
+        for row in chunk.iter_mut() {
+            for col in row.iter_mut() {
+                for block in col.iter_mut() {
+                    if rng.gen_bool(0.1) {
+                        block.ty = block::Type::Grass;
+                    }
+                }
+            }
+        }
+        chunk
+    }
+
+    fn create_instances(chunk: Chunk) -> Vec<Instance> {
+        let mut position = glam::Vec3::ZERO;
+        let mut instances: Vec<Instance> = vec![];
+        chunk.map(|blockz| {
+            blockz.map(|blocky| {
+                blocky.map(|block| {
+                    let color = match block.ty {
+                        block::Type::Grass => wgpu::Color::GREEN,
+                        block::Type::Inactive => wgpu::Color::TRANSPARENT,
+                    };
+                    if color != wgpu::Color::TRANSPARENT {
+                        instances.push(Instance::new(position, color));
+                    }
+                    position.x += 1.0;
+                });
+                position.y += 1.0;
+                position.x = 0.0;
+            });
+            position.z += 1.0;
+            position.y = 0.0;
+        });
+        instances
     }
 }
-
-const fn vertex(pos: [i8; 3], c: [f32; 3], n: [f32; 3]) -> Vertex {
-    Vertex::new([pos[0] as f32, pos[1] as f32, pos[2] as f32], c, n)
-}
-
-const GRASSES: [[f32; 3]; 6] = [
-    [0.604, 0.804, 0.196],
-    [0.655, 0.804, 0.196],
-    [0.706, 0.804, 0.196],
-    [0.553, 0.804, 0.196],
-    [0.502, 0.804, 0.196],
-    [0.451, 0.804, 0.196],
-];
-
-const CUBE: &[Vertex] = &[
-    // top (0, 0, 1)
-    vertex([-1, -1, 1], GRASSES[1], [0.0, 0.0, 1.0]),
-    vertex([1, -1, 1], GRASSES[0], [0.0, 0.0, 1.0]),
-    vertex([1, 1, 1], GRASSES[2], [0.0, 0.0, 1.0]),
-    vertex([-1, 1, 1], GRASSES[3], [0.0, 0.0, 1.0]),
-    // bottom (0, 0, -1)
-    vertex([-1, 1, -1], GRASSES[4], [0.0, 0.0, -1.0]),
-    vertex([1, 1, -1], GRASSES[5], [0.0, 0.0, -1.0]),
-    vertex([1, -1, -1], GRASSES[0], [0.0, 0.0, -1.0]),
-    vertex([-1, -1, -1], GRASSES[2], [0.0, 0.0, -1.0]),
-    // right (1, 0, 0)
-    vertex([1, -1, -1], GRASSES[0], [1.0, 0.0, 0.0]),
-    vertex([1, 1, -1], GRASSES[5], [1.0, 0.0, 0.0]),
-    vertex([1, 1, 1], GRASSES[2], [1.0, 0.0, 0.0]),
-    vertex([1, -1, 1], GRASSES[0], [1.0, 0.0, 0.0]),
-    // left (-1, 0, 0)
-    vertex([-1, -1, 1], GRASSES[1], [-1.0, 0.0, 0.0]),
-    vertex([-1, 1, 1], GRASSES[3], [-1.0, 0.0, 0.0]),
-    vertex([-1, 1, -1], GRASSES[4], [-1.0, 0.0, 0.0]),
-    vertex([-1, -1, -1], GRASSES[2], [-1.0, 0.0, 0.0]),
-    // front (0, 1, 0)
-    vertex([1, 1, -1], GRASSES[5], [0.0, 1.0, 0.0]),
-    vertex([-1, 1, -1], GRASSES[4], [0.0, 1.0, 0.0]),
-    vertex([-1, 1, 1], GRASSES[3], [0.0, 1.0, 0.0]),
-    vertex([1, 1, 1], GRASSES[2], [0.0, 1.0, 0.0]),
-    // back (0, -1, 0)
-    vertex([1, -1, 1], GRASSES[0], [0.0, -1.0, 0.0]),
-    vertex([-1, -1, 1], GRASSES[1], [0.0, -1.0, 0.0]),
-    vertex([-1, -1, -1], GRASSES[2], [0.0, -1.0, 0.0]),
-    vertex([1, -1, -1], GRASSES[0], [0.0, -1.0, 0.0]),
-];
-
-const CUBE_INDICES: &[u16] = &[
-    0, 1, 2, 2, 3, 0, // top
-    4, 5, 6, 6, 7, 4, // bottom
-    8, 9, 10, 10, 11, 8, // right
-    12, 13, 14, 14, 15, 12, // left
-    16, 17, 18, 18, 19, 16, // front
-    20, 21, 22, 22, 23, 20, // back
-];
