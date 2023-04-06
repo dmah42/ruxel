@@ -9,15 +9,17 @@ use glam::{Quat, Vec3};
 use rand::Rng;
 use wgpu::util::DeviceExt;
 
-type Chunk = [[[Block; 16]; 16]; 16];
+pub struct Chunk {
+    blocks: [[[Block; 16]; 16]; 16],
+    start: Vec3,
+}
 
 pub struct Scene {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
 
-    // TODO: multiple chunks
-    chunk: Chunk,
+    chunks: Vec<Chunk>,
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
 
@@ -40,8 +42,8 @@ impl Scene {
         });
         let num_indices = Block::INDICES.len() as u32;
 
-        let chunk = Self::create_chunk();
-        let instances = Self::create_instances(chunk);
+        let chunks = Self::create_chunks();
+        let instances = Self::create_instances(&chunks);
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -68,7 +70,7 @@ impl Scene {
             light,
             light_buffer,
 
-            chunk,
+            chunks,
         }
     }
 
@@ -107,42 +109,51 @@ impl Scene {
             Quat::from_axis_angle(Vec3::Y, 0.2 * dt.as_secs_f32()) * old_light_position;
     }
 
-    fn create_chunk() -> Chunk {
+    fn create_chunks() -> Vec<Chunk> {
         let mut rng = rand::thread_rng();
-        let mut chunk = [[[Block::new(block::Type::Inactive); 16]; 16]; 16];
-        for row in chunk.iter_mut() {
-            for col in row.iter_mut() {
-                for block in col.iter_mut() {
-                    if rng.gen_bool(0.1) {
-                        block.ty = block::Type::Grass;
+        (0..4)
+            .map(|idx| {
+                let mut chunk = Chunk {
+                    blocks: [[[Block::new(block::Type::Inactive); 16]; 16]; 16],
+                    start: Vec3::new(-8.0 * (idx / 2) as f32, -8.0, -8.0 * (idx % 2) as f32),
+                };
+                for row in chunk.blocks.iter_mut() {
+                    for col in row.iter_mut() {
+                        for block in col.iter_mut() {
+                            if rng.gen_bool(0.1) {
+                                block.ty = block::Type::Grass;
+                            }
+                        }
                     }
                 }
-            }
-        }
-        chunk
+                chunk
+            })
+            .collect::<Vec<_>>()
     }
 
-    fn create_instances(chunk: Chunk) -> Vec<Instance> {
-        let mut position = glam::Vec3::ZERO;
+    fn create_instances(chunks: &Vec<Chunk>) -> Vec<Instance> {
         let mut instances: Vec<Instance> = vec![];
-        chunk.map(|blockz| {
-            blockz.map(|blocky| {
-                blocky.map(|block| {
-                    let color = match block.ty {
-                        block::Type::Grass => wgpu::Color::GREEN,
-                        block::Type::Inactive => wgpu::Color::TRANSPARENT,
-                    };
-                    if color != wgpu::Color::TRANSPARENT {
-                        instances.push(Instance::new(position, color));
-                    }
-                    position.x += 1.0;
+        for chunk in chunks.iter() {
+            let mut position = chunk.start;
+            chunk.blocks.map(|blockz| {
+                blockz.map(|blocky| {
+                    blocky.map(|block| {
+                        let color = match block.ty {
+                            block::Type::Grass => wgpu::Color::GREEN,
+                            block::Type::Inactive => wgpu::Color::TRANSPARENT,
+                        };
+                        if color != wgpu::Color::TRANSPARENT {
+                            instances.push(Instance::new(position, color));
+                        }
+                        position.x += 1.0;
+                    });
+                    position.y += 1.0;
+                    position.x = chunk.start.x;
                 });
-                position.y += 1.0;
-                position.x = 0.0;
+                position.z += 1.0;
+                position.y = chunk.start.y;
             });
-            position.z += 1.0;
-            position.y = 0.0;
-        });
+        }
         instances
     }
 }
