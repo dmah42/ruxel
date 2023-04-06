@@ -4,7 +4,12 @@ use std::{
 };
 
 use crate::{
-    camera, camera::Camera, instance::Instance, scene::Scene, texture::Texture, vertex::Vertex,
+    camera,
+    camera::{Camera, Projection},
+    instance::Instance,
+    scene::Scene,
+    texture::Texture,
+    vertex::Vertex,
 };
 use wgpu::util::DeviceExt;
 use winit::window::Window;
@@ -22,6 +27,7 @@ pub struct RenderState {
     depth_texture: Texture,
 
     camera: Camera,
+    projection: Projection,
     camera_uniform: camera::Uniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
@@ -91,18 +97,13 @@ impl RenderState {
         let scene = Scene::new(&device);
 
         // TODO: make the camera part of the scene?
-        let camera = Camera::new(
-            glam::Vec3::new(0.0, 5.0, 10.0),
-            -FRAC_PI_2,
-            -PI / 9.0,
-            config.width as f32 / config.height as f32,
-            45.0,
-            0.1,
-            100.0,
-        );
+        let camera = Camera::new(glam::Vec3::new(0.0, 5.0, 10.0), -FRAC_PI_2, -PI / 9.0);
+
+        let projection =
+            Projection::new(config.width as f32 / config.height as f32, 45.0, 0.1, 100.0);
 
         let mut camera_uniform = camera::Uniform::new();
-        camera_uniform.update_view_proj(&camera);
+        camera_uniform.update_view_proj(&camera, &projection);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("camera buffer"),
@@ -214,6 +215,7 @@ impl RenderState {
             scene,
             depth_texture,
             camera,
+            projection,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
@@ -228,7 +230,8 @@ impl RenderState {
     pub fn update(&mut self, dt: Duration) {
         self.scene.update(dt);
 
-        self.camera_uniform.update_view_proj(&self.camera);
+        self.camera_uniform
+            .update_view_proj(&self.camera, &self.projection);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -250,6 +253,7 @@ impl RenderState {
             self.surface.configure(&self.device, &self.config);
             self.depth_texture =
                 Texture::new_depth_texture(&self.device, &self.config, "depth buffer");
+            self.projection.resize(new_size.width, new_size.height);
         }
     }
 

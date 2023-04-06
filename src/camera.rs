@@ -20,8 +20,35 @@ impl Uniform {
         }
     }
 
-    pub fn update_view_proj(&mut self, camera: &Camera) {
-        self.view_proj = *camera.view_projection_matrix().as_ref();
+    pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection) {
+        self.view_proj = *(projection.matrix() * camera.matrix()).as_ref();
+    }
+}
+
+#[derive(Debug)]
+pub struct Projection {
+    aspect: f32,
+    fovy: f32,
+    znear: f32,
+    zfar: f32,
+}
+
+impl Projection {
+    pub fn new(aspect: f32, fovy: f32, znear: f32, zfar: f32) -> Self {
+        Self {
+            aspect,
+            fovy,
+            znear,
+            zfar,
+        }
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        self.aspect = width as f32 / height as f32;
+    }
+
+    pub fn matrix(&self) -> Mat4 {
+        Mat4::perspective_rh(self.fovy, self.aspect, self.znear, self.zfar)
     }
 }
 
@@ -30,45 +57,26 @@ pub struct Camera {
     position: Vec3,
     yaw: f32,
     pitch: f32,
-    aspect: f32,
-    fovy: f32,
-    znear: f32,
-    zfar: f32,
 }
 
 impl Camera {
-    pub fn new(
-        position: Vec3,
-        yaw: f32,
-        pitch: f32,
-        aspect: f32,
-        fovy: f32,
-        znear: f32,
-        zfar: f32,
-    ) -> Self {
+    pub fn new(position: Vec3, yaw: f32, pitch: f32) -> Self {
         Self {
             position,
             yaw,
             pitch,
-            aspect,
-            fovy,
-            znear,
-            zfar,
         }
     }
 
-    fn view_projection_matrix(&self) -> Mat4 {
+    fn matrix(&self) -> Mat4 {
         let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
 
-        let view = Mat4::look_to_rh(
+        Mat4::look_to_rh(
             self.position,
             Vec3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
             Vec3::Y,
-        );
-
-        let proj = Mat4::perspective_rh(self.fovy, self.aspect, self.znear, self.zfar);
-        proj * view
+        )
     }
 }
 
