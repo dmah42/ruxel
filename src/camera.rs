@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use winit::{
     dpi::PhysicalPosition,
-    event::{ElementState, MouseScrollDelta},
+    event::{ElementState, MouseScrollDelta, VirtualKeyCode},
 };
 
 #[repr(C)]
@@ -115,35 +115,46 @@ impl Controller {
         }
     }
 
-    pub fn process_keyboard(&mut self, state: ElementState, scancode: u32) -> bool {
+    pub fn process_keyboard(
+        &mut self,
+        state: ElementState,
+        _scancode: u32,
+        keycode: VirtualKeyCode,
+    ) -> bool {
         let amount = if state == ElementState::Pressed {
             1.0
         } else {
             0.0
         };
-        match scancode {
-            // W | Up
-            13 | 126 => {
+        match keycode {
+            //13 | 126 => {
+            VirtualKeyCode::W | VirtualKeyCode::Up => {
                 self.amount_forward = amount;
                 true
             }
-            // A | Left
-            0 | 123 => {
+            //0 | 123 => {
+            VirtualKeyCode::A | VirtualKeyCode::Left => {
                 self.amount_left = amount;
                 true
             }
-            // S | Down
-            1 | 125 => {
+            //1 | 125 => {
+            VirtualKeyCode::S | VirtualKeyCode::Down => {
                 self.amount_backward = amount;
                 true
             }
-            // D | Right
-            2 | 124 => {
+            //2 | 124 => {
+            VirtualKeyCode::D | VirtualKeyCode::Right => {
                 self.amount_right = amount;
                 true
             }
-            // Space
-            // LShift
+            VirtualKeyCode::Space => {
+                self.amount_up = amount;
+                true
+            }
+            VirtualKeyCode::LShift => {
+                self.amount_down = amount;
+                true
+            }
             _ => false,
         }
     }

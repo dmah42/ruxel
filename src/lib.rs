@@ -73,11 +73,17 @@ impl Ruxel {
     fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::KeyboardInput {
-                input: KeyboardInput {
-                    scancode, state, ..
-                },
+                input:
+                    KeyboardInput {
+                        virtual_keycode: Some(keycode),
+                        scancode,
+                        state,
+                        ..
+                    },
                 ..
-            } => self.camera_controller.process_keyboard(*state, *scancode),
+            } => self
+                .camera_controller
+                .process_keyboard(*state, *scancode, *keycode),
             WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_controller.process_scroll(delta);
                 true
