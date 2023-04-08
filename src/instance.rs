@@ -8,6 +8,7 @@ pub struct RawInstance {
     color: [f32; 3],
 }
 
+#[derive(Debug)]
 pub struct Instance {
     position: glam::Vec3,
     color: wgpu::Color,

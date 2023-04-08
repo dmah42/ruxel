@@ -4,11 +4,13 @@ use crate::{
     block::{self, Block},
     instance::Instance,
     light::Light,
+    terrain,
 };
 use glam::{Quat, Vec3};
-use rand::Rng;
+use noise::NoiseFn;
 use wgpu::util::DeviceExt;
 
+#[derive(Debug)]
 pub struct Chunk {
     blocks: [[[Block; 16]; 16]; 16],
     start: Vec3,
@@ -52,7 +54,7 @@ impl Scene {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let light = Light::new(Vec3::new(100.0, 2.0, 50.0), wgpu::Color::WHITE);
+        let light = Light::new(Vec3::new(100.0, 5000.0, 50.0), wgpu::Color::WHITE);
         let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("light buffer"),
             contents: bytemuck::cast_slice(&[light.to_raw()]),
@@ -106,53 +108,72 @@ impl Scene {
         // move the light
         let old_light_position = self.light.position;
         self.light.position =
-            Quat::from_axis_angle(Vec3::Y, 0.2 * dt.as_secs_f32()) * old_light_position;
+            Quat::from_axis_angle(Vec3::Y, 0.05 * dt.as_secs_f32()) * old_light_position;
     }
 
     fn create_chunks() -> Vec<Chunk> {
-        let mut rng = rand::thread_rng();
-        (0..4)
-            .map(|idx| {
-                let mut chunk = Chunk {
-                    blocks: [[[Block::new(block::Type::Inactive); 16]; 16]; 16],
-                    start: Vec3::new(-8.0 * (idx / 2) as f32, -8.0, -8.0 * (idx % 2) as f32),
-                };
-                for row in chunk.blocks.iter_mut() {
-                    for col in row.iter_mut() {
-                        for block in col.iter_mut() {
-                            if rng.gen_bool(0.1) {
-                                block.ty = block::Type::Grass;
+        let terrain = &terrain::gen(0);
+
+        let chunks = {
+            (0..4)
+                .flat_map(|cx| {
+                    (0..4).flat_map(move |cy| {
+                        (0..4).map(move |cz| {
+                            let mut chunk = Chunk {
+                                blocks: [[[Block::new(); 16]; 16]; 16],
+                                start: Vec3::new(
+                                    16.0 * (cx as f32),
+                                    16.0 * (cy as f32),
+                                    16.0 * (cz as f32),
+                                ),
+                            };
+                            println!("chunk ({cx},{cy},{cz}) starting at {:?}", chunk.start);
+                            for (x, row) in chunk.blocks.iter_mut().enumerate() {
+                                for (y, col) in row.iter_mut().enumerate() {
+                                    for (z, block) in col.iter_mut().enumerate() {
+                                        let blockx = x + (16 * cx);
+                                        let blocky = y + (16 * cy);
+                                        let blockz = z + (16 * cz);
+                                        let point: [f64; 2] =
+                                            [blockx as f64 / 64.0, blockz as f64 / 64.0];
+                                        let height =
+                                            ((terrain.get(point) + 1.0) * 64.0 / 2.0) as f32;
+                                        // TODO: water below half
+                                        if (blocky as f32) < height {
+                                            block.set_type(match blocky {
+                                                0..=8 => block::Type::Sand,
+                                                9..=31 => block::Type::Grass,
+                                                32..=55 => block::Type::Rock,
+                                                56..=64 => block::Type::Ice,
+                                                _ => panic!("unexpected height"),
+                                            });
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    }
-                }
-                chunk
-            })
-            .collect::<Vec<_>>()
+                            chunk
+                        })
+                    })
+                })
+                .collect::<Vec<_>>()
+            //vec![chunk]
+        };
+        chunks
     }
 
     fn create_instances(chunks: &Vec<Chunk>) -> Vec<Instance> {
         let mut instances: Vec<Instance> = vec![];
         for chunk in chunks.iter() {
-            let mut position = chunk.start;
-            chunk.blocks.map(|blockz| {
-                blockz.map(|blocky| {
-                    blocky.map(|block| {
-                        let color = match block.ty {
-                            block::Type::Grass => wgpu::Color::GREEN,
-                            block::Type::Inactive => wgpu::Color::TRANSPARENT,
-                        };
-                        if color != wgpu::Color::TRANSPARENT {
-                            instances.push(Instance::new(position, color));
+            for (x, row) in chunk.blocks.iter().enumerate() {
+                for (y, col) in row.iter().enumerate() {
+                    for (z, block) in col.iter().enumerate() {
+                        let block_position = chunk.start + Vec3::new(x as f32, y as f32, z as f32);
+                        if block.is_active() {
+                            instances.push(Instance::new(block_position, block.color()));
                         }
-                        position.x += 1.0;
-                    });
-                    position.y += 1.0;
-                    position.x = chunk.start.x;
-                });
-                position.z += 1.0;
-                position.y = chunk.start.y;
-            });
+                    }
+                }
+            }
         }
         instances
     }

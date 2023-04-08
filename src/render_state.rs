@@ -97,10 +97,14 @@ impl RenderState {
         let scene = Scene::new(&device);
 
         // TODO: make the camera part of the scene?
-        let camera = Camera::new(glam::Vec3::new(0.0, 5.0, 10.0), -FRAC_PI_2, -PI / 9.0);
+        let camera = Camera::new(glam::Vec3::new(0.0, 50.0, 20.0), -FRAC_PI_2, -PI / 6.0);
 
-        let projection =
-            Projection::new(config.width as f32 / config.height as f32, 45.0, 0.1, 100.0);
+        let projection = Projection::new(
+            config.width as f32 / config.height as f32,
+            45.0,
+            0.1,
+            1000.0,
+        );
 
         let mut camera_uniform = camera::Uniform::new();
         camera_uniform.update_view_proj(&camera, &projection);

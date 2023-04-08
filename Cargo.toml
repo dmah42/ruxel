@@ -14,6 +14,7 @@ bytemuck = { version = "1.13.*", features = ["derive"] }
 env_logger = "0.10.*"
 glam = "0.23.*"
 log = "0.4.*"
+noise = "0.8.*"
 pollster = { version = "0.3.*", features = ["macro"] }
 rand = "0.8.*"
 wgpu = "0.15.*"
