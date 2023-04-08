@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use render_state::RenderState;
 use winit::{
+    dpi::PhysicalSize,
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
@@ -42,6 +43,8 @@ impl Ruxel {
         }
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
+            .with_min_inner_size(PhysicalSize::new(1024, 768))
+            .with_title("ruxel")
             .build(&event_loop)
             .expect("failed to build window");
 

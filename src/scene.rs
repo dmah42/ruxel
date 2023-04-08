@@ -112,13 +112,14 @@ impl Scene {
     }
 
     fn create_chunks() -> Vec<Chunk> {
+        println!("generating chunks...");
         let terrain = &terrain::gen(0);
 
         let chunks = {
-            (0..4)
+            (0..8)
                 .flat_map(|cx| {
                     (0..4).flat_map(move |cy| {
-                        (0..4).map(move |cz| {
+                        (0..8).map(move |cz| {
                             let mut chunk = Chunk {
                                 blocks: [[[Block::new(); 16]; 16]; 16],
                                 start: Vec3::new(
@@ -127,7 +128,6 @@ impl Scene {
                                     16.0 * (cz as f32),
                                 ),
                             };
-                            println!("chunk ({cx},{cy},{cz}) starting at {:?}", chunk.start);
                             for (x, row) in chunk.blocks.iter_mut().enumerate() {
                                 for (y, col) in row.iter_mut().enumerate() {
                                     for (z, block) in col.iter_mut().enumerate() {
@@ -135,7 +135,7 @@ impl Scene {
                                         let blocky = y + (16 * cy);
                                         let blockz = z + (16 * cz);
                                         let point: [f64; 2] =
-                                            [blockx as f64 / 64.0, blockz as f64 / 64.0];
+                                            [blockx as f64 / 128.0, blockz as f64 / 128.0];
                                         let height =
                                             ((terrain.get(point) + 1.0) * 64.0 / 2.0) as f32;
                                         if (blocky as f32) < 32.0 {
@@ -164,6 +164,7 @@ impl Scene {
     }
 
     fn create_instances(chunks: &Vec<Chunk>) -> Vec<Instance> {
+        println!("generating instances...");
         let mut instances: Vec<Instance> = vec![];
         for chunk in chunks.iter() {
             for (x, row) in chunk.blocks.iter().enumerate() {
