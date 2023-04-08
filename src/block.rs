@@ -7,6 +7,7 @@ pub enum Type {
     Grass,
     Rock,
     Ice,
+    Water,
 }
 
 const fn vertex(pos: [i8; 3], n: [f32; 3]) -> Vertex {
@@ -46,6 +47,12 @@ impl Block {
                 g: 0.80,
                 b: 0.16,
                 a: 1.0,
+            },
+            Type::Water => wgpu::Color {
+                r: 0.0,
+                g: 0.2,
+                b: 1.0,
+                a: 0.5,
             },
             Type::Inactive => wgpu::Color::TRANSPARENT,
         }

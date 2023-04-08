@@ -138,12 +138,14 @@ impl Scene {
                                             [blockx as f64 / 64.0, blockz as f64 / 64.0];
                                         let height =
                                             ((terrain.get(point) + 1.0) * 64.0 / 2.0) as f32;
-                                        // TODO: water below half
+                                        if (blocky as f32) < 32.0 {
+                                            block.set_type(block::Type::Water);
+                                        }
                                         if (blocky as f32) < height {
                                             block.set_type(match blocky {
-                                                0..=8 => block::Type::Sand,
-                                                9..=31 => block::Type::Grass,
-                                                32..=55 => block::Type::Rock,
+                                                0..=35 => block::Type::Sand,
+                                                36..=48 => block::Type::Grass,
+                                                49..=55 => block::Type::Rock,
                                                 56..=64 => block::Type::Ice,
                                                 _ => panic!("unexpected height"),
                                             });

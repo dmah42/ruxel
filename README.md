@@ -18,7 +18,7 @@ it's written in rust.
 * specular lighting
 * shadow mapping
 * transparent blocks
-    * anything under "0.0" height is water so we need active blocks above the land height
+    * basics are there, but all the water should be a separate render pass to work between chunks.
 * textures?
 * creatures
 * dynamic world?

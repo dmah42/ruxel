@@ -25,12 +25,12 @@ struct InstanceInput {
   @location(10) normal_matrix_1: vec3<f32>,
   @location(11) normal_matrix_2: vec3<f32>,
 
-  @location(12) color: vec3<f32>,
+  @location(12) color: vec4<f32>,
 };
 
 struct VertexOutput {
   @builtin(position) clip_position: vec4<f32>,
-  @location(0) color: vec3<f32>,
+  @location(0) color: vec4<f32>,
   @location(1) world_normal: vec3<f32>,
   @location(2) world_position: vec3<f32>,
 };
@@ -72,5 +72,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
   let result = (ambient_color + diffuse_color) * in.color.xyz;
 
-  return vec4<f32>(result, 1.0);
+  return vec4<f32>(result, in.color.w);
 }

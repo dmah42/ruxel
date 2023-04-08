@@ -5,7 +5,7 @@ use bytemuck::{Pod, Zeroable};
 pub struct RawInstance {
     model: [f32; 16],
     normal: [f32; 9],
-    color: [f32; 3],
+    color: [f32; 4],
 }
 
 #[derive(Debug)]
@@ -28,6 +28,7 @@ impl Instance {
                 self.color.r as f32,
                 self.color.g as f32,
                 self.color.b as f32,
+                self.color.a as f32,
             ],
         }
     }
@@ -83,7 +84,7 @@ impl Instance {
                 wgpu::VertexAttribute {
                     offset: mem::size_of::<[f32; 25]>() as wgpu::BufferAddress,
                     shader_location: 12,
-                    format: wgpu::VertexFormat::Float32x3,
+                    format: wgpu::VertexFormat::Float32x4,
                 },
             ],
         }
