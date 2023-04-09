@@ -1,10 +1,10 @@
 mod block;
 mod camera;
+mod chunks;
 mod instance;
 mod light;
 mod render_state;
 mod scene;
-mod terrain;
 mod texture;
 mod vertex;
 

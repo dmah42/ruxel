@@ -233,7 +233,7 @@ impl RenderState {
     }
 
     pub fn update(&mut self, dt: Duration) {
-        self.scene.update(dt);
+        self.scene.update(dt, self.camera.position(), &self.device);
 
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);

@@ -1,27 +1,20 @@
 use std::time::Duration;
 
 use crate::{
-    block::{self, Block},
-    instance::Instance,
+    block::Block,
+    chunks::Chunks,
+    instance::{Instance, RawInstance},
     light::Light,
-    terrain,
 };
 use glam::{Quat, Vec3};
-use noise::NoiseFn;
 use wgpu::util::DeviceExt;
-
-#[derive(Debug)]
-pub struct Chunk {
-    blocks: [[[Block; 16]; 16]; 16],
-    start: Vec3,
-}
 
 pub struct Scene {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
 
-    chunks: Vec<Chunk>,
+    chunks: Chunks,
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
 
@@ -44,15 +37,7 @@ impl Scene {
         });
         let num_indices = Block::INDICES.len() as u32;
 
-        let chunks = Self::create_chunks();
-        let instances = Self::create_instances(&chunks);
-
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("instance buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let chunks = Chunks::new(0);
 
         let light = Light::new(Vec3::new(100.0, 5000.0, 50.0), wgpu::Color::WHITE);
         let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -61,12 +46,19 @@ impl Scene {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        let instance_data: Vec<RawInstance> = vec![];
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("instance buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
         Self {
             vertex_buffer,
             index_buffer,
             num_indices,
 
-            instances,
+            instances: vec![],
             instance_buffer,
 
             light,
@@ -88,6 +80,10 @@ impl Scene {
         self.num_indices
     }
 
+    //pub fn instances(&self) -> &Vec<Instance> {
+    //    &self.instances
+    //}
+
     pub fn instance_buffer(&self) -> &wgpu::Buffer {
         &self.instance_buffer
     }
@@ -104,80 +100,46 @@ impl Scene {
         &self.light_buffer
     }
 
-    pub fn update(&mut self, dt: Duration) {
+    pub fn update(&mut self, dt: Duration, player_position: &Vec3, device: &wgpu::Device) {
+        if self.chunks.update(player_position) {
+            self.create_instances(device);
+        }
+
         // move the light
         let old_light_position = self.light.position;
         self.light.position =
             Quat::from_axis_angle(Vec3::Y, 0.05 * dt.as_secs_f32()) * old_light_position;
     }
 
-    fn create_chunks() -> Vec<Chunk> {
-        println!("generating chunks...");
-        let terrain = &terrain::gen(0);
-
-        let chunks = {
-            (0..8)
-                .flat_map(|cx| {
-                    (0..4).flat_map(move |cy| {
-                        (0..8).map(move |cz| {
-                            let mut chunk = Chunk {
-                                blocks: [[[Block::new(); 16]; 16]; 16],
-                                start: Vec3::new(
-                                    16.0 * (cx as f32),
-                                    16.0 * (cy as f32),
-                                    16.0 * (cz as f32),
-                                ),
-                            };
-                            for (x, row) in chunk.blocks.iter_mut().enumerate() {
-                                for (y, col) in row.iter_mut().enumerate() {
-                                    for (z, block) in col.iter_mut().enumerate() {
-                                        let blockx = x + (16 * cx);
-                                        let blocky = y + (16 * cy);
-                                        let blockz = z + (16 * cz);
-                                        let point: [f64; 2] =
-                                            [blockx as f64 / 128.0, blockz as f64 / 128.0];
-                                        let height =
-                                            ((terrain.get(point) + 1.0) * 64.0 / 2.0) as f32;
-                                        if (blocky as f32) < 32.0 {
-                                            block.set_type(block::Type::Water);
-                                        }
-                                        if (blocky as f32) < height {
-                                            block.set_type(match blocky {
-                                                0..=35 => block::Type::Sand,
-                                                36..=48 => block::Type::Grass,
-                                                49..=55 => block::Type::Rock,
-                                                56..=64 => block::Type::Ice,
-                                                _ => panic!("unexpected height"),
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                            chunk
-                        })
-                    })
-                })
-                .collect::<Vec<_>>()
-            //vec![chunk]
-        };
-        chunks
-    }
-
-    fn create_instances(chunks: &Vec<Chunk>) -> Vec<Instance> {
+    fn create_instances(&mut self, device: &wgpu::Device) {
         println!("generating instances...");
-        let mut instances: Vec<Instance> = vec![];
-        for chunk in chunks.iter() {
-            for (x, row) in chunk.blocks.iter().enumerate() {
-                for (y, col) in row.iter().enumerate() {
-                    for (z, block) in col.iter().enumerate() {
-                        let block_position = chunk.start + Vec3::new(x as f32, y as f32, z as f32);
-                        if block.is_active() {
-                            instances.push(Instance::new(block_position, block.color()));
+        self.instances.clear();
+        for chunks in self.chunks.loaded().values() {
+            for chunk in chunks.iter() {
+                for (x, row) in chunk.blocks().iter().enumerate() {
+                    for (y, col) in row.iter().enumerate() {
+                        for (z, block) in col.iter().enumerate() {
+                            let block_position =
+                                chunk.start() + Vec3::new(x as f32, y as f32, z as f32);
+                            if block.is_active() {
+                                self.instances
+                                    .push(Instance::new(block_position, block.color()));
+                            }
                         }
                     }
                 }
             }
         }
-        instances
+        let instance_data = self
+            .instances
+            .iter()
+            .map(Instance::to_raw)
+            .collect::<Vec<_>>();
+        self.instance_buffer.destroy();
+        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("instance buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
     }
 }
