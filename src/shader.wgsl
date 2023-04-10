@@ -8,7 +8,8 @@ struct LightUniform {
   position: vec3<f32>,
   color: vec3<f32>,
 }
-@group(1) @binding(0) var<uniform> light: LightUniform;
+@group(1) @binding(0) var<uniform> sun: LightUniform;
+@group(1) @binding(1) var<uniform> moon: LightUniform;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
@@ -63,14 +64,19 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let ambient_strength = 0.1;
-  let ambient_color = light.color * ambient_strength;
+  let ambient_color = moon.color * sun.color * ambient_strength;
 
-  let light_dir = normalize(light.position - in.world_position);
+  let sun_dir = normalize(sun.position - in.world_position);
 
-  let diffuse_strength = max(dot(in.world_normal, light_dir), 0.0);
-  let diffuse_color = light.color * diffuse_strength;
+  let sun_diffuse_strength = max(dot(in.world_normal, sun_dir), 0.0);
+  let sun_diffuse_color = sun.color * sun_diffuse_strength;
 
-  let result = (ambient_color + diffuse_color) * in.color.xyz;
+  let moon_dir = normalize(moon.position - in.world_position);
+
+  let moon_diffuse_strength = max(dot(in.world_normal, moon_dir), 0.0);
+  let moon_diffuse_color = moon.color * moon_diffuse_strength;
+
+  let result = (ambient_color + sun_diffuse_color + moon_diffuse_color) * in.color.xyz;
 
   return vec4<f32>(result, in.color.w);
 }

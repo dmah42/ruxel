@@ -18,8 +18,11 @@ pub struct Scene {
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
 
-    light: Light,
-    light_buffer: wgpu::Buffer,
+    sun: Light,
+    sun_buffer: wgpu::Buffer,
+
+    moon: Light,
+    moon_buffer: wgpu::Buffer,
 }
 
 impl Scene {
@@ -39,10 +42,33 @@ impl Scene {
 
         let chunks = Chunks::new(0);
 
-        let light = Light::new(Vec3::new(100.0, 5000.0, 50.0), wgpu::Color::WHITE);
-        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("light buffer"),
-            contents: bytemuck::cast_slice(&[light.to_raw()]),
+        let sun = Light::new(
+            Vec3::new(0.0, 5000.0, 0.0),
+            wgpu::Color {
+                r: 0.99,
+                g: 0.85,
+                b: 0.21,
+                a: 1.0,
+            },
+        );
+        let sun_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("sun buffer"),
+            contents: bytemuck::cast_slice(&[sun.to_raw()]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let moon = Light::new(
+            Vec3::new(0.0, -5000.0, 0.0),
+            wgpu::Color {
+                r: 0.76,
+                g: 0.77,
+                b: 0.80,
+                a: 1.0,
+            },
+        );
+        let moon_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("moon buffer"),
+            contents: bytemuck::cast_slice(&[moon.to_raw()]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -61,8 +87,10 @@ impl Scene {
             instances: vec![],
             instance_buffer,
 
-            light,
-            light_buffer,
+            sun,
+            sun_buffer,
+            moon,
+            moon_buffer,
 
             chunks,
         }
@@ -96,12 +124,20 @@ impl Scene {
         self.instances.len() as u32
     }
 
-    pub fn light(&self) -> &Light {
-        &self.light
+    pub fn sun(&self) -> &Light {
+        &self.sun
     }
 
-    pub fn light_buffer(&self) -> &wgpu::Buffer {
-        &self.light_buffer
+    pub fn sun_buffer(&self) -> &wgpu::Buffer {
+        &self.sun_buffer
+    }
+
+    pub fn moon(&self) -> &Light {
+        &self.moon
+    }
+
+    pub fn moon_buffer(&self) -> &wgpu::Buffer {
+        &self.moon_buffer
     }
 
     pub fn update(&mut self, dt: Duration, player_position: &Vec3, device: &wgpu::Device) {
@@ -109,14 +145,15 @@ impl Scene {
             self.create_instances(device);
         }
 
-        // move the light
-        let old_light_position = self.light.position;
-        self.light.position =
-            Quat::from_axis_angle(Vec3::Y, 0.05 * dt.as_secs_f32()) * old_light_position;
+        // move the sun and moon
+        // TODO: render sun and moon
+        self.sun.position =
+            Quat::from_axis_angle(Vec3::Y, 0.1 * dt.as_secs_f32()) * self.sun.position;
+        self.moon.position =
+            Quat::from_axis_angle(Vec3::Y, 0.2 * dt.as_secs_f32()) * self.moon.position;
     }
 
     fn create_instances(&mut self, device: &wgpu::Device) {
-        println!("generating instances...");
         self.instances.clear();
         for chunks in self.chunks.loaded().values() {
             for chunk in chunks.iter() {

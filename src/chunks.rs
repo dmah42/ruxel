@@ -67,23 +67,22 @@ impl Chunks {
         );
         self.chunk_position = (self.block_position.0 / 16, self.block_position.1 / 16);
 
-        // TODO: expand this beyond the chunks immediately around the player.
         let start_chunk_position = (
-            max(0, self.chunk_position.0 - 1) as u32,
-            max(0, self.chunk_position.1 - 1) as u32,
+            max(0, self.chunk_position.0 - 2) as u32,
+            max(0, self.chunk_position.1 - 2) as u32,
         );
         let end_chunk_position = (
-            max(0, self.chunk_position.0 + 1) as u32,
-            max(0, self.chunk_position.1 + 1) as u32,
+            max(0, self.chunk_position.0 + 2) as u32,
+            max(0, self.chunk_position.1 + 2) as u32,
         );
 
         //let before_clean = self.loaded.len();
-        //self.loaded.retain(|chunk, _| {
-        //    chunk.0 >= start_chunk_position.0
-        //        && chunk.1 >= start_chunk_position.1
-        //        && chunk.0 <= end_chunk_position.0
-        //        && chunk.1 <= end_chunk_position.1
-        //});
+        self.loaded.retain(|chunk, _| {
+            chunk.0 >= start_chunk_position.0
+                && chunk.1 >= start_chunk_position.1
+                && chunk.0 <= end_chunk_position.0
+                && chunk.1 <= end_chunk_position.1
+        });
         //if self.loaded.len() != before_clean {
         //    println!("unloaded {} chunks", before_clean - self.loaded.len());
         //}
