@@ -1,6 +1,6 @@
 use std::{cmp::max, collections::HashMap};
 
-use glam::Vec3;
+use glam::{IVec2, UVec2, Vec3};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 use crate::block::{self, Block};
@@ -23,10 +23,10 @@ impl Chunk {
 
 pub struct Chunks {
     // keyed by index derived from x and z positions of its origin
-    loaded: HashMap<(u32, u32), Vec<Chunk>>,
+    loaded: HashMap<UVec2, Vec<Chunk>>,
     terrain: Box<dyn NoiseFn<f64, 2>>,
-    block_position: (i32, i32),
-    chunk_position: (i32, i32),
+    block_position: IVec2,
+    chunk_position: IVec2,
 }
 
 impl Chunks {
@@ -40,62 +40,59 @@ impl Chunks {
                     .set_lacunarity(2.208984375)
                     .set_octaves(14),
             ),
-            block_position: (0, 0),
-            chunk_position: (0, 0),
+            block_position: IVec2::ZERO,
+            chunk_position: IVec2::ZERO,
         }
     }
 
-    pub fn block_position(&self) -> &(i32, i32) {
+    pub fn block_position(&self) -> &IVec2 {
         &self.block_position
     }
 
-    pub fn chunk_position(&self) -> &(i32, i32) {
+    pub fn chunk_position(&self) -> &IVec2 {
         &self.chunk_position
     }
 
-    pub fn loaded(&self) -> &HashMap<(u32, u32), Vec<Chunk>> {
+    pub fn loaded(&self) -> &HashMap<UVec2, Vec<Chunk>> {
         &self.loaded
     }
 
     // returns true if new chunks were loaded or old ones were unloaded.
-    pub fn update(&mut self, player_position: &glam::Vec3) -> bool {
+    pub fn update(&mut self, player_position: &Vec3) -> bool {
         let mut loaded = false;
         // clamp to only positive positions.
-        self.block_position = (
+        self.block_position = IVec2::new(
             max(player_position.x.floor() as i32, 0),
             max(player_position.z.floor() as i32, 0),
         );
-        self.chunk_position = (self.block_position.0 / 16, self.block_position.1 / 16);
+        self.chunk_position = IVec2::new(self.block_position.x / 16, self.block_position.y / 16);
 
-        let start_chunk_position = (
-            max(0, self.chunk_position.0 - 2) as u32,
-            max(0, self.chunk_position.1 - 2) as u32,
+        let start_chunk_position = UVec2::new(
+            max(0, self.chunk_position.x - 2) as u32,
+            max(0, self.chunk_position.y - 2) as u32,
         );
-        let end_chunk_position = (
-            max(0, self.chunk_position.0 + 2) as u32,
-            max(0, self.chunk_position.1 + 2) as u32,
+        let end_chunk_position = UVec2::new(
+            max(0, self.chunk_position.x + 2) as u32,
+            max(0, self.chunk_position.y + 2) as u32,
         );
 
-        //let before_clean = self.loaded.len();
+        // clean up any out of range chunks
         self.loaded.retain(|chunk, _| {
-            chunk.0 >= start_chunk_position.0
-                && chunk.1 >= start_chunk_position.1
-                && chunk.0 <= end_chunk_position.0
-                && chunk.1 <= end_chunk_position.1
+            chunk.x >= start_chunk_position.x
+                && chunk.y >= start_chunk_position.y
+                && chunk.x <= end_chunk_position.x
+                && chunk.y <= end_chunk_position.y
         });
-        //if self.loaded.len() != before_clean {
-        //    println!("unloaded {} chunks", before_clean - self.loaded.len());
-        //}
 
         // TODO: stick it in a thread
-        for chunkx in start_chunk_position.0..=end_chunk_position.0 {
-            for chunkz in start_chunk_position.1..=end_chunk_position.1 {
-                if self.loaded.contains_key(&(chunkx, chunkz)) {
-                    //println!("skipping already loaded chunk ({chunkx}, {chunkz})");
+        for chunkx in start_chunk_position.x..=end_chunk_position.x {
+            for chunkz in start_chunk_position.y..=end_chunk_position.y {
+                let key = UVec2::new(chunkx, chunkz);
+                if self.loaded.contains_key(&key) {
                     continue;
                 }
+                println!("loading chunk {key}");
                 loaded = true;
-                println!("loading chunk ({chunkx}, {chunkz})");
                 let mut chunks: Vec<Chunk> = vec![];
                 for chunky in 0..8 {
                     let mut chunk = Chunk {
@@ -113,8 +110,8 @@ impl Chunks {
                                 let blocky = (y as u32) + (16 * chunky);
                                 let blockz = (z as u32) + (16 * chunkz);
                                 let point: [f64; 2] =
-                                    [blockx as f64 / 128.0, blockz as f64 / 128.0];
-                                let height = ((self.terrain.get(point) + 1.0) * 64.0 / 2.0) as f32;
+                                    [blockx as f64 / 256.0, blockz as f64 / 256.0];
+                                let height = ((self.terrain.get(point) + 1.0) * 32.0) as f32;
                                 if (blocky as f32) < 32.0 {
                                     block.set_type(block::Type::Water);
                                 }
@@ -123,8 +120,7 @@ impl Chunks {
                                         0..=35 => block::Type::Sand,
                                         36..=48 => block::Type::Grass,
                                         49..=55 => block::Type::Rock,
-                                        56..=64 => block::Type::Ice,
-                                        _ => panic!("unexpected height"),
+                                        56.. => block::Type::Ice,
                                     });
                                 }
                             }
@@ -132,7 +128,7 @@ impl Chunks {
                     }
                     chunks.push(chunk);
                 }
-                self.loaded.insert((chunkx, chunkz), chunks);
+                self.loaded.insert(key, chunks);
             }
         }
         loaded

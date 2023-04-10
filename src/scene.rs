@@ -26,7 +26,7 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(seed: u32, device: &wgpu::Device) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
             contents: bytemuck::cast_slice(Block::VERTICES),
@@ -40,10 +40,10 @@ impl Scene {
         });
         let num_indices = Block::INDICES.len() as u32;
 
-        let chunks = Chunks::new(0);
+        let chunks = Chunks::new(seed);
 
         let sun = Light::new(
-            Vec3::new(0.0, 5000.0, 0.0),
+            Vec3::new(0.0, 200.0, 200.0),
             wgpu::Color {
                 r: 0.99,
                 g: 0.85,
@@ -58,7 +58,7 @@ impl Scene {
         });
 
         let moon = Light::new(
-            Vec3::new(0.0, -5000.0, 0.0),
+            Vec3::new(0.0, -80.0, 80.0),
             wgpu::Color {
                 r: 0.76,
                 g: 0.77,
@@ -146,11 +146,11 @@ impl Scene {
         }
 
         // move the sun and moon
-        // TODO: render sun and moon
+        // TODO: also precess around Z
         self.sun.position =
-            Quat::from_axis_angle(Vec3::Y, 0.1 * dt.as_secs_f32()) * self.sun.position;
+            Quat::from_axis_angle(Vec3::X, 0.05 * dt.as_secs_f32()) * self.sun.position;
         self.moon.position =
-            Quat::from_axis_angle(Vec3::Y, 0.2 * dt.as_secs_f32()) * self.moon.position;
+            Quat::from_axis_angle(Vec3::X, 0.1 * dt.as_secs_f32()) * self.moon.position;
     }
 
     fn create_instances(&mut self, device: &wgpu::Device) {

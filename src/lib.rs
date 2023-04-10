@@ -33,7 +33,7 @@ pub struct Ruxel {
 }
 
 impl Ruxel {
-    pub async fn new() -> Self {
+    pub async fn new(seed: u32) -> Self {
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
                 std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -66,7 +66,7 @@ impl Ruxel {
                 .expect("failed to add canvas to document body");
         }
 
-        let state = RenderState::new(&window).await;
+        let state = RenderState::new(seed, &window).await;
         Self {
             event_loop: Some(event_loop),
             window,

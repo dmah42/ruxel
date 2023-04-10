@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use glam::Vec3;
+use glam::{IVec2, Vec3};
 use wgpu::{CommandBuffer, Device, Queue, SurfaceConfiguration, TextureView};
 use wgpu_text::{
     font::FontArc,
@@ -32,16 +32,16 @@ impl Ui {
     pub fn update(
         &mut self,
         player_position: &Vec3,
-        block_position: &(i32, i32),
-        chunk_position: &(i32, i32),
+        block_position: &IVec2,
+        chunk_position: &IVec2,
         _dt: Duration,
     ) {
         self.player_position = format!(
             "player: {:.2} {:.2} {:.2}",
             player_position.x, player_position.y, player_position.z
         );
-        self.block_position = format!("block: {} {}", block_position.0, block_position.1);
-        self.chunk_position = format!("chunk: {} {}", chunk_position.0, chunk_position.1);
+        self.block_position = format!("block: {block_position}");
+        self.chunk_position = format!("chunk: {chunk_position}");
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>, queue: &Queue) {
