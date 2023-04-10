@@ -13,6 +13,9 @@ pub struct Ui {
     player_position: String,
     block_position: String,
     chunk_position: String,
+    fps: u32,
+    total_time: Duration,
+    fps_str: String,
 }
 
 impl Ui {
@@ -26,6 +29,9 @@ impl Ui {
             player_position: String::from(""),
             block_position: String::from(""),
             chunk_position: String::from(""),
+            fps: 0,
+            total_time: Duration::new(0, 0),
+            fps_str: format!("FPS: 0").into(),
         }
     }
 
@@ -34,7 +40,7 @@ impl Ui {
         player_position: &Vec3,
         block_position: &IVec2,
         chunk_position: &IVec2,
-        _dt: Duration,
+        dt: Duration,
     ) {
         self.player_position = format!(
             "player: {:.2} {:.2} {:.2}",
@@ -42,6 +48,14 @@ impl Ui {
         );
         self.block_position = format!("block: {block_position}");
         self.chunk_position = format!("chunk: {chunk_position}");
+
+        self.fps += 1;
+        self.total_time += dt;
+        if self.total_time.as_secs_f32() > 1.0 {
+            self.fps_str = format!("FPS: {}", self.fps).into();
+            self.fps = 0;
+            self.total_time = Duration::new(0, 0);
+        }
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>, queue: &Queue) {
@@ -64,6 +78,11 @@ impl Ui {
             Section::default()
                 .add_text(Text::new(&self.chunk_position).with_scale(30.0))
                 .with_screen_position((20.0, 90.0)),
+        );
+        self.brush.queue(
+            Section::default()
+                .add_text(Text::new(&self.fps_str).with_scale(30.0))
+                .with_screen_position((900.0, 20.0)),
         );
         self.brush
             .process_queued(device, queue)
