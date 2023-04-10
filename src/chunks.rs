@@ -25,6 +25,8 @@ pub struct Chunks {
     // keyed by index derived from x and z positions of its origin
     loaded: HashMap<(u32, u32), Vec<Chunk>>,
     terrain: Box<dyn NoiseFn<f64, 2>>,
+    block_position: (i32, i32),
+    chunk_position: (i32, i32),
 }
 
 impl Chunks {
@@ -38,7 +40,17 @@ impl Chunks {
                     .set_lacunarity(2.208984375)
                     .set_octaves(14),
             ),
+            block_position: (0, 0),
+            chunk_position: (0, 0),
         }
+    }
+
+    pub fn block_position(&self) -> &(i32, i32) {
+        &self.block_position
+    }
+
+    pub fn chunk_position(&self) -> &(i32, i32) {
+        &self.chunk_position
     }
 
     pub fn loaded(&self) -> &HashMap<(u32, u32), Vec<Chunk>> {
@@ -49,20 +61,20 @@ impl Chunks {
     pub fn update(&mut self, player_position: &glam::Vec3) -> bool {
         let mut loaded = false;
         // clamp to only positive positions.
-        let block_position = (
+        self.block_position = (
             max(player_position.x.floor() as i32, 0),
             max(player_position.z.floor() as i32, 0),
         );
-        let chunk_position = (block_position.0 % 16, block_position.1 % 16);
+        self.chunk_position = (self.block_position.0 / 16, self.block_position.1 / 16);
 
         // TODO: expand this beyond the chunks immediately around the player.
         let start_chunk_position = (
-            max(0, chunk_position.0 - 1) as u32,
-            max(0, chunk_position.1 - 1) as u32,
+            max(0, self.chunk_position.0 - 1) as u32,
+            max(0, self.chunk_position.1 - 1) as u32,
         );
         let end_chunk_position = (
-            max(0, chunk_position.0 + 1) as u32,
-            max(0, chunk_position.1 + 1) as u32,
+            max(0, self.chunk_position.0 + 1) as u32,
+            max(0, self.chunk_position.1 + 1) as u32,
         );
 
         //let before_clean = self.loaded.len();

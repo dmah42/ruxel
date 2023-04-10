@@ -6,6 +6,7 @@ mod light;
 mod render_state;
 mod scene;
 mod texture;
+mod ui;
 mod vertex;
 
 use std::time::{Duration, Instant};

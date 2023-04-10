@@ -9,6 +9,7 @@ use crate::{
     instance::Instance,
     scene::Scene,
     texture::Texture,
+    ui::Ui,
     vertex::Vertex,
 };
 use wgpu::util::DeviceExt;
@@ -22,6 +23,7 @@ pub struct RenderState {
     config: wgpu::SurfaceConfiguration,
     render_pipeline: wgpu::RenderPipeline,
 
+    ui: Ui,
     scene: Scene,
 
     depth_texture: Texture,
@@ -36,7 +38,7 @@ pub struct RenderState {
 }
 
 impl RenderState {
-    pub async fn new(window: &Window) -> Self {
+    pub async fn new(window: &Window) -> RenderState {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -94,6 +96,7 @@ impl RenderState {
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
+        let ui = Ui::new(&device, &config);
         let scene = Scene::new(&device);
 
         // TODO: make the camera part of the scene?
@@ -217,6 +220,7 @@ impl RenderState {
             queue,
             config,
             render_pipeline,
+            ui,
             scene,
             depth_texture,
             camera,
@@ -233,6 +237,12 @@ impl RenderState {
     }
 
     pub fn update(&mut self, dt: Duration) {
+        self.ui.update(
+            self.camera.position(),
+            self.scene.chunks().block_position(),
+            self.scene.chunks().chunk_position(),
+            dt,
+        );
         self.scene.update(dt, self.camera.position(), &self.device);
 
         self.camera_uniform
@@ -259,6 +269,7 @@ impl RenderState {
             self.depth_texture =
                 Texture::new_depth_texture(&self.device, &self.config, "depth buffer");
             self.projection.resize(new_size.width, new_size.height);
+            self.ui.resize(new_size, &self.queue);
         }
     }
 
@@ -313,7 +324,8 @@ impl RenderState {
                 0..self.scene.num_instances() as _,
             );
         }
-        self.queue.submit(std::iter::once(encoder.finish()));
+        let ui_buffer = self.ui.render(&self.device, &self.queue, &view);
+        self.queue.submit([encoder.finish(), ui_buffer]); // std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())

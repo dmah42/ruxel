@@ -68,6 +68,10 @@ impl Scene {
         }
     }
 
+    pub fn chunks(&self) -> &Chunks {
+        &self.chunks
+    }
+
     pub fn vertex_buffer(&self) -> &wgpu::Buffer {
         &self.vertex_buffer
     }
