@@ -9,6 +9,7 @@ use crate::{
     ui::Ui,
     vertex::Vertex,
 };
+use rand::Rng;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
