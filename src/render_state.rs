@@ -97,8 +97,10 @@ impl RenderState {
         let scene = Scene::new(seed, &device);
 
         // TODO: make the camera part of the scene? (and abstract as a "player".
-        // TODO: set the height after loading the first chunks.
-        let camera = Camera::new(glam::Vec3::new(2048.0, 50.0, 2048.0), 0.0, 0.0);
+        let mut rng = rand::thread_rng();
+        let playerx = rng.gen_range(2000.0..4000.0);
+        let playerz = rng.gen_range(2000.0..4000.0);
+        let camera = Camera::new(glam::Vec3::new(playerx, 50.0, playerz), 0.0, 0.0);
 
         let projection = Projection::new(
             config.width as f32 / config.height as f32,

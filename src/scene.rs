@@ -186,9 +186,8 @@ impl Scene {
     }
 
     pub fn update(&mut self, dt: Duration, player_position: &Vec3, device: &wgpu::Device) {
-        if self.chunks.update(player_position) {
-            self.create_instances(device);
-        }
+        self.chunks.update(player_position);
+        self.create_instances(device);
 
         // move the sun and moon
         // TODO: also precess around Z
@@ -217,7 +216,22 @@ impl Scene {
 
     fn create_instances(&mut self, device: &wgpu::Device) {
         self.instances.clear();
-        for chunks in self.chunks.loaded().values() {
+        // TODO: use new_chunks.
+        //for key in self
+        //    .chunks
+        //    .new_chunks()
+        //    .lock()
+        //    .expect("lock new_chunks")
+        //    .iter()
+        //{
+        //    for chunk in self
+        //        .chunks
+        //        .loaded()
+        //        .lock()
+        //        .expect("lock loaded")
+        //        .get(key)
+        //        .unwrap()
+        for chunks in self.chunks.loaded().lock().expect("").values() {
             for chunk in chunks.iter() {
                 for (x, row) in chunk.blocks().iter().enumerate() {
                     for (y, col) in row.iter().enumerate() {
@@ -233,6 +247,7 @@ impl Scene {
                 }
             }
         }
+        //}
         let instance_data = self
             .instances
             .iter()
