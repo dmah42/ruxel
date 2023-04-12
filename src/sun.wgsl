@@ -10,6 +10,7 @@ struct LightUniform {
 @group(1) @binding(0) var<uniform> sun: LightUniform;
 // left unbound
 @group(1) @binding(1) var<uniform> _unused: LightUniform;
+@group(1) @binding(2) var<storage, read> _unused2: vec3<f32>;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,

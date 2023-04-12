@@ -67,8 +67,9 @@ impl Scene {
 
         let chunks = Chunks::new(seed);
 
+        // TODO: position sun relative to player always.
         let sun = Light::new(
-            Vec3::new(0.0, 200.0, 200.0),
+            Vec3::new(0.0, 200.0, 50.0),
             wgpu::Color {
                 r: 0.99,
                 g: 0.85,
@@ -83,7 +84,7 @@ impl Scene {
         });
 
         let moon = Light::new(
-            Vec3::new(0.0, -80.0, 80.0),
+            Vec3::new(0.0, -80.0, 40.0),
             wgpu::Color {
                 r: 0.76,
                 g: 0.77,
