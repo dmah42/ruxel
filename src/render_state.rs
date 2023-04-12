@@ -166,6 +166,16 @@ impl RenderState {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
         let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -178,6 +188,10 @@ impl RenderState {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: scene.moon_buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: scene.sky_buffer().as_entire_binding(),
                 },
             ],
             label: Some("light bind group"),
@@ -286,6 +300,11 @@ impl RenderState {
             0,
             bytemuck::cast_slice(&[self.scene.moon().to_raw()]),
         );
+        self.queue.write_buffer(
+            &self.scene.sky_buffer(),
+            0,
+            bytemuck::cast_slice(&[*self.scene.sky()]),
+        );
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -318,12 +337,7 @@ impl RenderState {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(self.scene.sky().color()),
                         store: true,
                     },
                 })],

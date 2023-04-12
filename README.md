@@ -9,7 +9,6 @@ it's written in rust.
 * better landscape generation
     * perlin is fine for now but maybe something more interesting if the complexplanet example can be made to work
 * chunks: basics are in place but i need to:
-    * queue up the loading of chunks based on player position
     * keep track of which chunks are ready to render
     * update instance buffer based on these renderable chunks
     * _optimisation_: make a chunk an instance rather than each block to reduce render calls
