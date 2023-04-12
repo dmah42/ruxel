@@ -170,7 +170,7 @@ impl RenderState {
                         binding: 2,
                         visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
@@ -303,7 +303,7 @@ impl RenderState {
         self.queue.write_buffer(
             &self.scene.sky_buffer(),
             0,
-            bytemuck::cast_slice(&[*self.scene.sky()]),
+            bytemuck::cast_slice(&[self.scene.sky().to_raw()]),
         );
     }
 

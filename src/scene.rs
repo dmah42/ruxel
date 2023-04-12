@@ -14,7 +14,6 @@ use wgpu::util::DeviceExt;
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Sky {
     color: [f32; 3],
-    padding: u32,
 }
 
 impl Sky {
@@ -25,6 +24,10 @@ impl Sky {
             b: self.color[2] as f64,
             a: 1.0,
         }
+    }
+
+    pub fn to_raw(&self) -> [f32; 3] {
+        self.color
     }
 }
 
@@ -96,12 +99,11 @@ impl Scene {
 
         let sky = Sky {
             color: [0.0, 0.0, 0.0],
-            padding: 0,
         };
         let sky_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("sky buffer"),
-            contents: bytemuck::cast_slice(&[sky]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            contents: bytemuck::cast_slice(&[sky.color]),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
         let instance_data: Vec<RawInstance> = vec![];
