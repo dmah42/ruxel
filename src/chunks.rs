@@ -41,6 +41,8 @@ pub struct Chunks {
     chunk_position: IVec2,
     chunk_loader: Option<JoinHandle<()>>,
     loader_tx: Option<Sender<UVec2>>,
+
+    terrain: Fbm<Perlin>,
 }
 
 impl Drop for Chunks {
@@ -64,6 +66,7 @@ impl Chunks {
             .set_persistence(0.5)
             .set_lacunarity(2.208984375)
             .set_octaves(14);
+        let terrain_clone = terrain.clone();
 
         // Create a thread that will load chunks when requested.
         let loading = Arc::new(Mutex::new(HashSet::new()));
@@ -77,7 +80,7 @@ impl Chunks {
             .name(String::from("chunk loader"))
             .spawn(move || {
                 for key in loader_rx {
-                    let chunks = load_chunks(&terrain, key);
+                    let chunks = load_chunks(&terrain_clone, key);
                     println!("completed loading of chunk {key}");
                     loaded_clone
                         .lock()
@@ -99,6 +102,8 @@ impl Chunks {
             chunk_position: IVec2::ZERO,
             chunk_loader: Some(chunk_loader),
             loader_tx: Some(loader_tx),
+
+            terrain,
         }
     }
 
@@ -167,6 +172,11 @@ impl Chunks {
                     .expect("send succeeded");
             }
         }
+    }
+
+    pub fn height_at(&self, position: &Vec3) -> f32 {
+        let point: [f64; 2] = [position.x as f64 / 256.0, position.z as f64 / 256.0];
+        ((self.terrain.get(point) + 1.0) * 32.0) as f32
     }
 }
 

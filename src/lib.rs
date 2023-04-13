@@ -108,9 +108,14 @@ impl Ruxel {
     }
 
     fn update(&mut self, dt: Duration) {
-        // TODO: update light.
         self.camera_controller
             .update_camera(self.state.camera(), dt);
+        {
+            // update player physics
+            let camera_position = self.state.camera().position();
+            let height = self.state.scene().chunks().height_at(&camera_position);
+            self.state.camera().update_physics(height, dt);
+        }
         self.state.update(dt);
     }
 
@@ -148,11 +153,7 @@ impl Ruxel {
                 Event::DeviceEvent {
                     event: DeviceEvent::MouseMotion { delta },
                     ..
-                } => {
-                    if self.mouse_pressed {
-                        self.camera_controller.process_mouse(delta.0, delta.1)
-                    }
-                }
+                } => self.camera_controller.process_mouse(delta.0, delta.1),
                 Event::WindowEvent {
                     ref event,
                     window_id,

@@ -7,6 +7,10 @@ use winit::{
     event::{ElementState, MouseScrollDelta, VirtualKeyCode},
 };
 
+const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.001;
+const GRAVITY: f32 = 3.0;
+const PLAYER_HEIGHT: f32 = 1.8;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Uniform {
@@ -57,6 +61,7 @@ pub struct Camera {
     position: Vec3,
     yaw: f32,
     pitch: f32,
+    velocity_y: f32,
 }
 
 impl Camera {
@@ -65,11 +70,12 @@ impl Camera {
             position,
             yaw,
             pitch,
+            velocity_y: 0.0,
         }
     }
 
-    pub fn position(&self) -> &Vec3 {
-        &self.position
+    pub fn position(&self) -> Vec3 {
+        self.position
     }
 
     fn matrix(&self) -> Mat4 {
@@ -81,6 +87,21 @@ impl Camera {
             Vec3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
             Vec3::Y,
         )
+    }
+
+    pub fn update_physics(&mut self, height: f32, dt: Duration) {
+        let dt = dt.as_secs_f32();
+        let height = height + PLAYER_HEIGHT;
+        // gravity
+        if self.position.y > height {
+            self.velocity_y -= GRAVITY * dt;
+            self.position.y += self.velocity_y * dt;
+        }
+        // collision with ground
+        if self.position.y < height {
+            self.position.y = height;
+            self.velocity_y = 0.0;
+        }
     }
 }
 
@@ -96,6 +117,7 @@ pub struct Controller {
     rotate_vert: f32,
 
     scroll: f32,
+
     speed: f32,
     sensitivity: f32,
 }
@@ -151,14 +173,14 @@ impl Controller {
                 self.amount_right = amount;
                 true
             }
-            VirtualKeyCode::Space => {
-                self.amount_up = amount;
-                true
-            }
-            VirtualKeyCode::LShift => {
-                self.amount_down = amount;
-                true
-            }
+            //VirtualKeyCode::Space => {
+            //    self.amount_up = amount;
+            //    true
+            //}
+            //VirtualKeyCode::LShift => {
+            //    self.amount_down = amount;
+            //    true
+            //}
             _ => false,
         }
     }
@@ -192,7 +214,8 @@ impl Controller {
         camera.position += scrollward * self.scroll * self.speed * self.sensitivity * dt;
         self.scroll = 0.0;
 
-        // up and Down
+        // up and down
+        // TODO: jump
         camera.position.y += (self.amount_up - self.amount_down) * self.speed * dt;
 
         // rotate
@@ -203,10 +226,10 @@ impl Controller {
         self.rotate_vert = 0.0;
 
         // limit pitch
-        if camera.pitch < -FRAC_PI_2 {
-            camera.pitch = -FRAC_PI_2;
-        } else if camera.pitch > FRAC_PI_2 {
-            camera.pitch = FRAC_PI_2;
+        if camera.pitch < -SAFE_FRAC_PI_2 {
+            camera.pitch = -SAFE_FRAC_PI_2;
+        } else if camera.pitch > SAFE_FRAC_PI_2 {
+            camera.pitch = SAFE_FRAC_PI_2;
         }
     }
 }

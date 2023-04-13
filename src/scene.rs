@@ -117,10 +117,6 @@ impl Scene {
         self.num_indices
     }
 
-    //pub fn instances(&self) -> &Vec<Instance> {
-    //    &self.instances
-    //}
-
     pub fn instance_buffer(&self) -> &wgpu::Buffer {
         &self.instance_buffer
     }

@@ -273,14 +273,18 @@ impl RenderState {
         &mut self.camera
     }
 
+    pub fn scene(&mut self) -> &Scene {
+        &self.scene
+    }
+
     pub fn update(&mut self, dt: Duration) {
         self.ui.update(
-            self.camera.position(),
+            &self.camera.position(),
             self.scene.chunks().block_position(),
             self.scene.chunks().chunk_position(),
             dt,
         );
-        self.scene.update(dt, self.camera.position(), &self.device);
+        self.scene.update(dt, &self.camera.position(), &self.device);
 
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
