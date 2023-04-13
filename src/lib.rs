@@ -5,6 +5,7 @@ mod instance;
 mod light;
 mod render_state;
 mod scene;
+mod sky;
 mod texture;
 mod ui;
 mod vertex;

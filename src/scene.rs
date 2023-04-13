@@ -1,35 +1,14 @@
-use std::{cmp::max, time::Duration};
+use std::time::Duration;
 
 use crate::{
     block::Block,
     chunks::Chunks,
     instance::{Instance, RawInstance},
     light::Light,
+    sky::Sky,
 };
-use bytemuck::{Pod, Zeroable};
 use glam::{Quat, Vec3};
 use wgpu::util::DeviceExt;
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-pub struct Sky {
-    color: [f32; 3],
-}
-
-impl Sky {
-    pub fn color(&self) -> wgpu::Color {
-        wgpu::Color {
-            r: self.color[0] as f64,
-            g: self.color[1] as f64,
-            b: self.color[2] as f64,
-            a: 1.0,
-        }
-    }
-
-    pub fn to_raw(&self) -> [f32; 3] {
-        self.color
-    }
-}
 
 pub struct Scene {
     vertex_buffer: wgpu::Buffer,
@@ -47,7 +26,6 @@ pub struct Scene {
     moon_buffer: wgpu::Buffer,
 
     sky: Sky,
-    sky_buffer: wgpu::Buffer,
 }
 
 impl Scene {
@@ -98,15 +76,6 @@ impl Scene {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let sky = Sky {
-            color: [0.0, 0.0, 0.0],
-        };
-        let sky_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("sky buffer"),
-            contents: bytemuck::cast_slice(&[sky.color]),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
-
         let instance_data: Vec<RawInstance> = vec![];
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("instance buffer"),
@@ -126,8 +95,7 @@ impl Scene {
             sun_buffer,
             moon,
             moon_buffer,
-            sky,
-            sky_buffer,
+            sky: Sky::new(device),
 
             chunks,
         }
@@ -181,10 +149,6 @@ impl Scene {
         &self.sky
     }
 
-    pub fn sky_buffer(&self) -> &wgpu::Buffer {
-        &self.sky_buffer
-    }
-
     pub fn update(&mut self, dt: Duration, player_position: &Vec3, device: &wgpu::Device) {
         self.chunks.update(player_position);
         self.create_instances(device);
@@ -196,22 +160,7 @@ impl Scene {
         self.moon.position =
             Quat::from_axis_angle(Vec3::X, 0.1 * dt.as_secs_f32()) * self.moon.position;
 
-        const SKY_DAY: wgpu::Color = wgpu::Color {
-            r: 135.0 / 255.0,
-            g: 206.0 / 255.0,
-            b: 235.0 / 255.0,
-            a: 1.0,
-        };
-        const SKY_NIGHT: wgpu::Color = wgpu::Color {
-            r: 12.0 / 255.0,
-            g: 20.0 / 255.0,
-            b: 69.0 / 255.0,
-            a: 1.0,
-        };
-        let frac = (max(0, self.sun.position.y as i32) as f64) / 200.0;
-        self.sky.color[0] = (SKY_DAY.r * frac + SKY_NIGHT.r * (1.0 - frac)) as f32;
-        self.sky.color[1] = (SKY_DAY.g * frac + SKY_NIGHT.g * (1.0 - frac)) as f32;
-        self.sky.color[2] = (SKY_DAY.b * frac + SKY_NIGHT.b * (1.0 - frac)) as f32;
+        self.sky.update(dt, &self.sun.position);
     }
 
     fn create_instances(&mut self, device: &wgpu::Device) {

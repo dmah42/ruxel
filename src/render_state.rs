@@ -191,7 +191,7 @@ impl RenderState {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: scene.sky_buffer().as_entire_binding(),
+                    resource: scene.sky().buffer().as_entire_binding(),
                 },
             ],
             label: Some("light bind group"),
@@ -301,7 +301,7 @@ impl RenderState {
             bytemuck::cast_slice(&[self.scene.moon().to_raw()]),
         );
         self.queue.write_buffer(
-            &self.scene.sky_buffer(),
+            &self.scene.sky().buffer(),
             0,
             bytemuck::cast_slice(&[self.scene.sky().to_raw()]),
         );
