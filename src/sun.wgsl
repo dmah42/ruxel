@@ -5,12 +5,14 @@ struct CameraUniform {
 
 struct LightUniform {
   position: vec3<f32>,
-  color: vec3<f32>,
+  color: vec4<f32>,
 }
-@group(1) @binding(0) var<uniform> sun: LightUniform;
+struct LightUniforms {
+  lights: array<LightUniform, 2>,
+}
+@group(1) @binding(0) var<storage, read> _unused: vec3<f32>;
 // left unbound
-@group(1) @binding(1) var<uniform> _unused: LightUniform;
-@group(1) @binding(2) var<storage, read> _unused2: vec3<f32>;
+@group(1) @binding(1) var<uniform> lights: LightUniforms;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
@@ -26,8 +28,8 @@ struct VertexOutput {
 fn vs_main(model: VertexInput) -> VertexOutput {
   let scale = 2.0;
   var out: VertexOutput;
-  out.clip_position = camera.view_proj * vec4<f32>(model.position * scale + sun.position, 1.0);
-  out.color = vec4<f32>(sun.color, 1.0);
+  out.clip_position = camera.view_proj * vec4<f32>(model.position * scale + lights.lights[0].position, 1.0);
+  out.color = vec4<f32>(lights.lights[0].color.xyz, 1.0);
   return out;
 }
 

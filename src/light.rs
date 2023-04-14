@@ -6,8 +6,17 @@ use glam::Vec3;
 pub struct RawLight {
     position: [f32; 3],
     _padding: u32,
-    color: [f32; 3],
-    _padding2: u32,
+    color: [f32; 4],
+}
+
+impl RawLight {
+    pub fn new() -> Self {
+        Self {
+            position: [0.0; 3],
+            _padding: 0,
+            color: [0.0; 4],
+        }
+    }
 }
 
 pub struct Light {
@@ -28,8 +37,8 @@ impl Light {
                 self.color.r as f32,
                 self.color.g as f32,
                 self.color.b as f32,
+                self.color.a as f32,
             ],
-            _padding2: 0,
         }
     }
 }

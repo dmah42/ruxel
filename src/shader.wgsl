@@ -6,13 +6,13 @@ struct CameraUniform {
 
 struct LightUniform {
   position: vec3<f32>,
-  color: vec3<f32>,
+  color: vec4<f32>,
 }
-// TODO: array of lights
-@group(1) @binding(0) var<uniform> sun: LightUniform;
-@group(1) @binding(1) var<uniform> moon: LightUniform;
-
-@group(1) @binding(2) var<storage, read> sky: vec3<f32>;
+struct LightUniforms {
+  lights: array<LightUniform, 2>,
+}
+@group(1) @binding(0) var<storage, read> sky: vec3<f32>;
+@group(1) @binding(1) var<uniform> lights: LightUniforms;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
@@ -63,23 +63,26 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
   return out;
 }
 
+fn light_color(light: LightUniform, pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+  let dir = normalize(light.position - pos);
+
+  let diffuse_strength = max(dot(normal, dir), 0.0);
+  return light.color.xyz * diffuse_strength * light.color.w;
+}
+
 // Fragment shader
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let ambient_strength = 0.1;
   let ambient_color = sky * ambient_strength;
 
-  let sun_dir = normalize(sun.position - in.world_position);
+  var light_color = ambient_color;
 
-  let sun_diffuse_strength = max(dot(in.world_normal, sun_dir), 0.0);
-  let sun_diffuse_color = sun.color * sun_diffuse_strength;
+  let lights = lights.lights;
+  light_color += light_color(lights[0], in.world_position, in.world_normal);
+  light_color += light_color(lights[1], in.world_position, in.world_normal);
 
-  let moon_dir = normalize(moon.position - in.world_position);
-
-  let moon_diffuse_strength = max(dot(in.world_normal, moon_dir), 0.0);
-  let moon_diffuse_color = moon.color * moon_diffuse_strength;
-
-  let result = (ambient_color + sun_diffuse_color + moon_diffuse_color) * in.color.xyz;
+  let result = light_color * in.color.xyz;
 
   return vec4<f32>(result, in.color.w);
 }

@@ -97,7 +97,6 @@ impl RenderState {
         let ui = Ui::new(&device, &config);
         let scene = Scene::new(seed, &device);
 
-        // TODO: make the camera part of the scene? (and abstract as a "player".
         let mut rng = rand::thread_rng();
         let playerx = rng.gen_range(2000.0..4000.0);
         let playerz = rng.gen_range(2000.0..4000.0);
@@ -105,9 +104,9 @@ impl RenderState {
 
         let projection = Projection::new(
             config.width as f32 / config.height as f32,
-            45.0,
+            75.0_f32.to_radians(),
             0.1,
-            10000.0,
+            1000.0,
         );
 
         let mut camera_uniform = camera::Uniform::new();
@@ -150,7 +149,7 @@ impl RenderState {
                         binding: 0,
                         visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
@@ -166,16 +165,6 @@ impl RenderState {
                         },
                         count: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
                 ],
             });
         let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -183,15 +172,11 @@ impl RenderState {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: scene.sun_buffer().as_entire_binding(),
+                    resource: scene.sky().buffer().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: scene.moon_buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: scene.sky().buffer().as_entire_binding(),
+                    resource: scene.lights_buffer().as_entire_binding(),
                 },
             ],
             label: Some("light bind group"),
@@ -295,15 +280,11 @@ impl RenderState {
         );
 
         self.queue.write_buffer(
-            &self.scene.sun_buffer(),
+            &self.scene.lights_buffer(),
             0,
-            bytemuck::cast_slice(&[self.scene.sun().to_raw()]),
+            bytemuck::cast_slice(&[self.scene.lights().to_raw()]),
         );
-        self.queue.write_buffer(
-            &self.scene.moon_buffer(),
-            0,
-            bytemuck::cast_slice(&[self.scene.moon().to_raw()]),
-        );
+
         self.queue.write_buffer(
             &self.scene.sky().buffer(),
             0,
