@@ -175,7 +175,7 @@ impl Chunks {
     }
 
     pub fn height_at(&self, position: &Vec3) -> f32 {
-        let point: [f64; 2] = [position.x as f64 / 256.0, position.z as f64 / 256.0];
+        let point: [f64; 2] = [position.x as f64 / 384.0, position.z as f64 / 384.0];
         ((self.terrain.get(point) + 1.0) * 32.0) as f32
     }
 }
@@ -198,7 +198,7 @@ fn load_chunks(terrain: &Fbm<Perlin>, key: UVec2) -> Vec<Chunk> {
                     let blockx = (x as u32) + (16 * key.x);
                     let blocky = (y as u32) + (16 * chunky);
                     let blockz = (z as u32) + (16 * key.y);
-                    let point: [f64; 2] = [blockx as f64 / 256.0, blockz as f64 / 256.0];
+                    let point: [f64; 2] = [blockx as f64 / 384.0, blockz as f64 / 384.0];
                     let height = ((terrain.get(point) + 1.0) * 32.0) as f32;
                     if (blocky as f32) < 32.0 {
                         block.set_type(block::Type::Water);

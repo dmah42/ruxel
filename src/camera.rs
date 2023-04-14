@@ -9,7 +9,7 @@ use winit::{
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.001;
 const GRAVITY: f32 = 3.0;
-const PLAYER_HEIGHT: f32 = 1.8;
+const PLAYER_HEIGHT: f32 = 2.4;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]

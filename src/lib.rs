@@ -46,6 +46,7 @@ impl Ruxel {
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
             .with_min_inner_size(PhysicalSize::new(1024, 768))
+            .with_inner_size(PhysicalSize::new(1920, 1080))
             .with_title("ruxel")
             .build(&event_loop)
             .expect("failed to build window");

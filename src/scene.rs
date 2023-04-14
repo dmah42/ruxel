@@ -194,12 +194,14 @@ impl Scene {
                 }
             }
         }
-        //}
         let instance_data = self
             .instances
             .iter()
             .map(Instance::to_raw)
             .collect::<Vec<_>>();
+
+        // NOTE: we can't just write the buffer as the size of instance data may change from update
+        // to update.
         self.instance_buffer.destroy();
         self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("instance buffer"),

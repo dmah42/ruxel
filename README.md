@@ -5,16 +5,17 @@ it's written in rust.
 
 ## TODO
 * player object instead of moving the camera
+    * hacked to make it look like a player.
 * collision
+    * basics are in place but the player can climb too easily maybe
 * better landscape generation
-    * perlin is fine for now but maybe something more interesting if the complexplanet example can be made to work
+    * Fbm<Perlin> is working well and is fast.
 * chunks: basics are in place but i need to:
-    * keep track of which chunks are ready to render
-    * update instance buffer based on these renderable chunks
     * _optimisation_: make a chunk an instance rather than each block to reduce render calls
 * save/load world to disk
 * more block types
 * specular lighting
+    * maybe just for some block types
 * shadow mapping
 * transparent blocks
     * basics are there, but all the water should be a separate render pass to work between chunks.

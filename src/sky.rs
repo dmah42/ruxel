@@ -15,6 +15,7 @@ pub struct Sky {
     buffer: wgpu::Buffer,
 }
 
+// TODO: https://nicoschertler.wordpress.com/2013/04/03/simulating-a-days-sky/
 impl Sky {
     pub fn new(device: &wgpu::Device) -> Self {
         let color = wgpu::Color::BLACK;
