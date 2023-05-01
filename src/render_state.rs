@@ -78,8 +78,7 @@ impl RenderState {
             .formats
             .iter()
             .copied()
-            .filter(|f| f.describe().srgb)
-            .next()
+            .find(|f| f.describe().srgb)
             .unwrap_or(surface_caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -280,13 +279,13 @@ impl RenderState {
         );
 
         self.queue.write_buffer(
-            &self.scene.lights_buffer(),
+            self.scene.lights_buffer(),
             0,
             bytemuck::cast_slice(&[self.scene.lights().to_raw()]),
         );
 
         self.queue.write_buffer(
-            &self.scene.sky().buffer(),
+            self.scene.sky().buffer(),
             0,
             bytemuck::cast_slice(&[self.scene.sky().to_raw()]),
         );
@@ -399,7 +398,7 @@ fn create_render_pipeline(
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("render pipeline"),
-        layout: Some(&layout),
+        layout: Some(layout),
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",

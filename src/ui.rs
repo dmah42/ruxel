@@ -22,7 +22,7 @@ impl Ui {
     pub fn new(device: &Device, config: &SurfaceConfiguration) -> Self {
         let font_data = include_bytes!("../fonts/Stacked pixel.ttf").to_vec();
         let font = FontArc::try_from_vec(font_data).expect("unable to load font");
-        let brush = BrushBuilder::using_font(font).build(&device, &config);
+        let brush = BrushBuilder::using_font(font).build(device, config);
 
         Self {
             brush,
@@ -31,7 +31,7 @@ impl Ui {
             chunk_position: String::from(""),
             fps: 0,
             total_time: Duration::new(0, 0),
-            fps_str: format!("FPS: 0").into(),
+            fps_str: String::from("FPS: 0"),
         }
     }
 
@@ -52,7 +52,7 @@ impl Ui {
         self.fps += 1;
         self.total_time += dt;
         if self.total_time.as_secs_f32() > 1.0 {
-            self.fps_str = format!("FPS: {}", self.fps).into();
+            self.fps_str = format!("FPS: {}", self.fps);
             self.fps = 0;
             self.total_time = Duration::new(0, 0);
         }

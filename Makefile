@@ -1,12 +1,14 @@
-.PHONY: build run wasm
+.PHONY: build check run wasm
 
-build:
+build: check
 	cargo build
 
 check:
+	cargo wgsl
 	cargo check
+	cargo clippy
 
-run:
+run: build
 	cargo run
 
 wasm:
