@@ -44,7 +44,7 @@ pub struct Scene {
     num_indices: u32,
 
     chunks: Chunks,
-    chunk_buffers: std::collections::HashMap<glam::UVec2, Vec<ChunkBuffers>>,
+    chunk_buffers: std::collections::HashMap<glam::UVec2, Vec<Option<ChunkBuffers>>>,
 
     sun_offset: Vec3,
     moon_offset: Vec3,
@@ -139,7 +139,9 @@ impl Scene {
         self.num_indices
     }
 
-    pub fn chunk_buffers(&self) -> &std::collections::HashMap<glam::UVec2, Vec<ChunkBuffers>> {
+    pub fn chunk_buffers(
+        &self,
+    ) -> &std::collections::HashMap<glam::UVec2, Vec<Option<ChunkBuffers>>> {
         &self.chunk_buffers
     }
 
@@ -177,58 +179,68 @@ impl Scene {
         self.chunk_buffers
             .retain(|key, _| locked_loaded.contains_key(key));
 
+        let terrain = self.chunks.terrain().clone();
+
         for (key, chunks) in locked_loaded.iter_mut() {
-            if !self.chunk_buffers.contains_key(key) {
-                let mut col_buffers = Vec::new();
-                for chunk in chunks.iter_mut() {
-                    if let Some(mesh) = chunk.take_mesh() {
-                        let opaque_indices = mesh.opaque_indices();
-                        let transparent_indices = mesh.transparent_indices();
+            let col_buffers = self
+                .chunk_buffers
+                .entry(*key)
+                .or_insert_with(|| (0..chunks.len()).map(|_| None).collect());
 
-                        if opaque_indices.is_empty() && transparent_indices.is_empty() {
-                            continue; // skip empty meshes
-                        }
-                        let vertex_buffer =
-                            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("chunk vertex buffer"),
-                                contents: bytemuck::cast_slice(mesh.vertices()),
-                                usage: wgpu::BufferUsages::VERTEX,
-                            });
-
-                        let opaque_index_buffer = if !opaque_indices.is_empty() {
-                            Some((
-                                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                    label: Some("chunk opaque index buffer"),
-                                    contents: bytemuck::cast_slice(opaque_indices),
-                                    usage: wgpu::BufferUsages::INDEX,
-                                }),
-                                opaque_indices.len() as u32,
-                            ))
-                        } else {
-                            None
-                        };
-
-                        let transparent_index_buffer = if !transparent_indices.is_empty() {
-                            Some((
-                                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                    label: Some("chunk transparent index buffer"),
-                                    contents: bytemuck::cast_slice(transparent_indices),
-                                    usage: wgpu::BufferUsages::INDEX,
-                                }),
-                                transparent_indices.len() as u32,
-                            ))
-                        } else {
-                            None
-                        };
-
-                        col_buffers.push(ChunkBuffers {
-                            vertex_buffer,
-                            opaque_index_buffer,
-                            transparent_index_buffer,
-                        });
-                    }
+            for (i, chunk) in chunks.iter_mut().enumerate() {
+                if chunk.dirty() {
+                    chunk.set_mesh(crate::mesh::ChunkMesh::build(chunk, &terrain));
+                    chunk.clean();
                 }
-                self.chunk_buffers.insert(*key, col_buffers);
+
+                if let Some(mesh) = chunk.take_mesh() {
+                    let opaque_indices = mesh.opaque_indices();
+                    let transparent_indices = mesh.transparent_indices();
+
+                    if opaque_indices.is_empty() && transparent_indices.is_empty() {
+                        col_buffers[i] = None;
+                        continue;
+                    }
+
+                    let vertex_buffer =
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("chunk vertex buffer"),
+                            contents: bytemuck::cast_slice(mesh.vertices()),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+
+                    let opaque_index_buffer = if !opaque_indices.is_empty() {
+                        Some((
+                            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("chunk opaque index buffer"),
+                                contents: bytemuck::cast_slice(opaque_indices),
+                                usage: wgpu::BufferUsages::INDEX,
+                            }),
+                            opaque_indices.len() as u32,
+                        ))
+                    } else {
+                        None
+                    };
+
+                    let transparent_index_buffer = if !transparent_indices.is_empty() {
+                        Some((
+                            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("chunk transparent index buffer"),
+                                contents: bytemuck::cast_slice(transparent_indices),
+                                usage: wgpu::BufferUsages::INDEX,
+                            }),
+                            transparent_indices.len() as u32,
+                        ))
+                    } else {
+                        None
+                    };
+
+                    col_buffers[i] = Some(ChunkBuffers {
+                        vertex_buffer,
+                        opaque_index_buffer,
+                        transparent_index_buffer,
+                    });
+                }
             }
         }
     }

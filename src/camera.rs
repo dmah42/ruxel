@@ -91,15 +91,100 @@ impl Camera {
         p
     }
 
-    fn matrix(&self) -> Mat4 {
+    pub fn forward(&self) -> Vec3 {
         let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
+        Vec3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize()
+    }
 
-        Mat4::look_to_rh(
-            self.visual_position(),
-            Vec3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
-            Vec3::Y,
-        )
+    fn matrix(&self) -> Mat4 {
+        Mat4::look_to_rh(self.visual_position(), self.forward(), Vec3::Y)
+    }
+
+    pub fn raycast(
+        &self,
+        chunks: &crate::chunks::Chunks,
+        max_distance: f32,
+    ) -> Option<(glam::IVec3, glam::IVec3)> {
+        let origin = self.visual_position();
+        let dir = self.forward();
+
+        let mut x = origin.x.floor() as i32;
+        let mut y = origin.y.floor() as i32;
+        let mut z = origin.z.floor() as i32;
+
+        let step_x = dir.x.signum() as i32;
+        let step_y = dir.y.signum() as i32;
+        let step_z = dir.z.signum() as i32;
+
+        let t_delta_x = if dir.x != 0.0 {
+            (1.0 / dir.x).abs()
+        } else {
+            f32::INFINITY
+        };
+        let t_delta_y = if dir.y != 0.0 {
+            (1.0 / dir.y).abs()
+        } else {
+            f32::INFINITY
+        };
+        let t_delta_z = if dir.z != 0.0 {
+            (1.0 / dir.z).abs()
+        } else {
+            f32::INFINITY
+        };
+
+        let mut t_max_x = if dir.x > 0.0 {
+            ((x as f32 + 1.0) - origin.x) * t_delta_x
+        } else {
+            (origin.x - x as f32) * t_delta_x
+        };
+        let mut t_max_y = if dir.y > 0.0 {
+            ((y as f32 + 1.0) - origin.y) * t_delta_y
+        } else {
+            (origin.y - y as f32) * t_delta_y
+        };
+        let mut t_max_z = if dir.z > 0.0 {
+            ((z as f32 + 1.0) - origin.z) * t_delta_z
+        } else {
+            (origin.z - z as f32) * t_delta_z
+        };
+
+        let mut current_distance = 0.0;
+        let mut normal = glam::IVec3::ZERO;
+
+        while current_distance <= max_distance {
+            if chunks.is_solid_at(x, y, z) {
+                return Some((glam::IVec3::new(x, y, z), normal));
+            }
+
+            if t_max_x < t_max_y {
+                if t_max_x < t_max_z {
+                    current_distance = t_max_x;
+                    x += step_x;
+                    t_max_x += t_delta_x;
+                    normal = glam::IVec3::new(-step_x, 0, 0);
+                } else {
+                    current_distance = t_max_z;
+                    z += step_z;
+                    t_max_z += t_delta_z;
+                    normal = glam::IVec3::new(0, 0, -step_z);
+                }
+            } else {
+                if t_max_y < t_max_z {
+                    current_distance = t_max_y;
+                    y += step_y;
+                    t_max_y += t_delta_y;
+                    normal = glam::IVec3::new(0, -step_y, 0);
+                } else {
+                    current_distance = t_max_z;
+                    z += step_z;
+                    t_max_z += t_delta_z;
+                    normal = glam::IVec3::new(0, 0, -step_z);
+                }
+            }
+        }
+
+        None
     }
 
     pub fn update_physics(&mut self, chunks: &crate::chunks::Chunks, dt: Duration) {

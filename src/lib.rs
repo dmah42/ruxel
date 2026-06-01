@@ -18,7 +18,7 @@ use winit::{
     dpi::PhysicalSize,
     event::*,
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
+    window::{CursorGrabMode, Window, WindowBuilder},
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -32,6 +32,8 @@ pub struct Ruxel {
     state: RenderState,
     camera_controller: camera::Controller,
     mouse_pressed: bool,
+    mouse_grabbed: bool,
+    selected_block_type: block::Type,
 }
 
 impl Ruxel {
@@ -70,13 +72,31 @@ impl Ruxel {
         }
 
         let state = RenderState::new(seed, &window).await;
-        Self {
+
+        let mut ruxel = Self {
             event_loop: Some(event_loop),
             window,
             state,
             camera_controller: camera::Controller::new(4.0, 0.4),
             mouse_pressed: false,
+            mouse_grabbed: false,
+            selected_block_type: block::Type::Grass,
+        };
+        ruxel
+    }
+
+    fn grab_mouse(&mut self) {
+        if self.window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+            let _ = self.window.set_cursor_grab(CursorGrabMode::Confined);
         }
+        self.window.set_cursor_visible(false);
+        self.mouse_grabbed = true;
+    }
+
+    fn ungrab_mouse(&mut self) {
+        let _ = self.window.set_cursor_grab(CursorGrabMode::None);
+        self.window.set_cursor_visible(true);
+        self.mouse_grabbed = false;
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -90,9 +110,20 @@ impl Ruxel {
                         ..
                     },
                 ..
-            } => self
-                .camera_controller
-                .process_keyboard(*state, *scancode, *keycode),
+            } => {
+                if *state == ElementState::Pressed {
+                    match keycode {
+                        VirtualKeyCode::Key1 => self.selected_block_type = block::Type::Grass,
+                        VirtualKeyCode::Key2 => self.selected_block_type = block::Type::Sand,
+                        VirtualKeyCode::Key3 => self.selected_block_type = block::Type::Rock,
+                        VirtualKeyCode::Key4 => self.selected_block_type = block::Type::Ice,
+                        VirtualKeyCode::Key5 => self.selected_block_type = block::Type::Water,
+                        _ => {}
+                    }
+                }
+                self.camera_controller
+                    .process_keyboard(*state, *scancode, *keycode)
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_controller.process_scroll(delta);
                 true
@@ -102,21 +133,41 @@ impl Ruxel {
                 state,
                 ..
             } => {
-                self.mouse_pressed = *state == ElementState::Pressed;
+                let pressed = *state == ElementState::Pressed;
+                if pressed && !self.mouse_pressed {
+                    if !self.mouse_grabbed {
+                        self.grab_mouse();
+                    } else {
+                        self.state.interact(false, self.selected_block_type);
+                    }
+                }
+                self.mouse_pressed = pressed;
+                true
+            }
+            WindowEvent::MouseInput {
+                button: MouseButton::Right,
+                state: ElementState::Pressed,
+                ..
+            } => {
+                if !self.mouse_grabbed {
+                    self.grab_mouse();
+                } else {
+                    self.state.interact(true, self.selected_block_type);
+                }
                 true
             }
             _ => false,
         }
     }
 
-    fn update(&mut self, dt: Duration) {
+    fn update(&mut self, dt: Duration, selected_block_type: block::Type) {
         self.camera_controller
             .update_camera(self.state.camera(), dt);
         {
             // update player physics
             self.state.update_physics(dt);
         }
-        self.state.update(dt);
+        self.state.update(dt, selected_block_type);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
@@ -139,7 +190,8 @@ impl Ruxel {
                         dt = Duration::from_millis(100);
                     }
                     last_render_time = now;
-                    self.update(dt);
+                    let block_type = self.selected_block_type;
+                    self.update(dt, block_type);
                     match self.state.render() {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost) => self.state.resize(self.state.size),
@@ -156,14 +208,18 @@ impl Ruxel {
                 Event::DeviceEvent {
                     event: DeviceEvent::MouseMotion { delta },
                     ..
-                } => self.camera_controller.process_mouse(delta.0, delta.1),
+                } => {
+                    if self.mouse_grabbed {
+                        self.camera_controller.process_mouse(delta.0, delta.1);
+                    }
+                }
                 Event::WindowEvent {
                     ref event,
                     window_id,
                 } if window_id == self.window.id() && !self.input(event) => match event {
                     #[cfg(not(target_arch = "wasm32"))]
-                    WindowEvent::CloseRequested
-                    | WindowEvent::KeyboardInput {
+                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                    WindowEvent::KeyboardInput {
                         input:
                             KeyboardInput {
                                 state: ElementState::Pressed,
@@ -171,7 +227,13 @@ impl Ruxel {
                                 ..
                             },
                         ..
-                    } => *control_flow = ControlFlow::Exit,
+                    } => {
+                        if self.mouse_grabbed {
+                            self.ungrab_mouse();
+                        } else {
+                            *control_flow = ControlFlow::Exit;
+                        }
+                    }
                     WindowEvent::Resized(physical_size) => {
                         self.state.resize(*physical_size);
                     }

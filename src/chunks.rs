@@ -21,6 +21,7 @@ pub struct Chunk {
     blocks: [[[Block; 16]; 16]; 16],
     start: Vec3,
     mesh: Option<crate::mesh::ChunkMesh>,
+    dirty: bool,
 }
 
 impl Chunk {
@@ -32,8 +33,20 @@ impl Chunk {
         self.start
     }
 
+    pub fn dirty(&self) -> bool {
+        self.dirty
+    }
+
+    pub fn clean(&mut self) {
+        self.dirty = false
+    }
+
     pub fn take_mesh(&mut self) -> Option<crate::mesh::ChunkMesh> {
         self.mesh.take()
+    }
+
+    pub fn set_mesh(&mut self, mesh: crate::mesh::ChunkMesh) {
+        self.mesh = Some(mesh);
     }
 }
 
@@ -170,6 +183,69 @@ impl Chunks {
         ((self.terrain.get(point) + 1.0) * 32.0) as f32
     }
 
+    pub fn set_block(&self, x: i32, y: i32, z: i32, block_type: block::Type) {
+        if x < 0 || y < 0 || z < 0 || y >= 128 {
+            return;
+        }
+
+        let chunk_x = (x as u32) / 16;
+        let chunk_y = (y as usize) / 16;
+        let chunk_z = (z as u32) / 16;
+
+        let lx = (x as usize) % 16;
+        let ly = (y as usize) % 16;
+        let lz = (z as usize) % 16;
+
+        let key = UVec2::new(chunk_x, chunk_z);
+        if let Ok(mut loaded) = self.loaded.lock() {
+            if let Some(col) = loaded.get_mut(&key) {
+                if chunk_y < col.len() {
+                    col[chunk_y].blocks[lx][ly][lz].set_type(block_type);
+                    col[chunk_y].dirty = true;
+
+                    if ly == 15 && chunk_y + 1 < col.len() {
+                        col[chunk_y + 1].dirty = true;
+                    }
+                    if ly == 0 && chunk_y > 0 {
+                        col[chunk_y - 1].dirty = true;
+                    }
+                }
+            }
+            if lx == 15 {
+                let key_adj = UVec2::new(chunk_x + 1, chunk_z);
+                if let Some(col) = loaded.get_mut(&key_adj) {
+                    if chunk_y < col.len() {
+                        col[chunk_y].dirty = true;
+                    }
+                }
+            }
+            if lx == 0 && chunk_x > 0 {
+                let key_adj = UVec2::new(chunk_x - 1, chunk_z);
+                if let Some(col) = loaded.get_mut(&key_adj) {
+                    if chunk_y < col.len() {
+                        col[chunk_y].dirty = true;
+                    }
+                }
+            }
+            if lz == 15 {
+                let key_adj = UVec2::new(chunk_x, chunk_z + 1);
+                if let Some(col) = loaded.get_mut(&key_adj) {
+                    if chunk_y < col.len() {
+                        col[chunk_y].dirty = true;
+                    }
+                }
+            }
+            if lz == 0 && chunk_z > 0 {
+                let key_adj = UVec2::new(chunk_x, chunk_z - 1);
+                if let Some(col) = loaded.get_mut(&key_adj) {
+                    if chunk_y < col.len() {
+                        col[chunk_y].dirty = true;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn is_solid_at(&self, x: i32, y: i32, z: i32) -> bool {
         if x < 0 || y < 0 || z < 0 || y >= 128 {
             return false;
@@ -204,6 +280,10 @@ impl Chunks {
         }
         false
     }
+
+    pub fn terrain(&self) -> &MountainTerrain {
+        &self.terrain
+    }
 }
 
 fn load_chunks(terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
@@ -218,6 +298,7 @@ fn load_chunks(terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
                 16.0 * (key.y as f32),
             ),
             mesh: None,
+            dirty: false,
         };
         for (x, row) in chunk.blocks.iter_mut().enumerate() {
             for (y, col) in row.iter_mut().enumerate() {

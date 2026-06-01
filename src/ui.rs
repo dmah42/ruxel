@@ -18,6 +18,7 @@ pub struct Ui {
     fps: u32,
     total_time: Duration,
     fps_str: String,
+    selected_block: String,
 }
 
 impl Ui {
@@ -36,6 +37,7 @@ impl Ui {
             fps: 0,
             total_time: Duration::new(0, 0),
             fps_str: String::from("FPS: 0"),
+            selected_block: String::from(""),
         }
     }
 
@@ -44,6 +46,7 @@ impl Ui {
         player_position: &Vec3,
         block_position: &IVec2,
         chunk_position: &IVec2,
+        selected_block_type: crate::block::Type,
         dt: Duration,
     ) {
         self.player_position = format!(
@@ -52,6 +55,7 @@ impl Ui {
         );
         self.block_position = format!("block: {block_position}");
         self.chunk_position = format!("chunk: {chunk_position}");
+        self.selected_block = format!("selected: {:?}", selected_block_type);
 
         self.fps += 1;
         self.total_time += dt;
@@ -97,6 +101,12 @@ impl Ui {
                         .with_color([0.0, 0.0, 0.0, 0.7]),
                 )
                 .with_screen_position(self.center),
+        );
+        // TODO: add UI for showing which block type is which number.
+        self.brush.queue(
+            Section::default()
+                .add_text(Text::new(&self.selected_block).with_scale(30.0))
+                .with_screen_position((20.0, 125.0)),
         );
         self.brush
             .process_queued(device, queue)

@@ -308,11 +308,28 @@ impl RenderState {
         self.camera.update_physics(self.scene.chunks(), dt);
     }
 
-    pub fn update(&mut self, dt: Duration) {
+    pub fn interact(&mut self, place: bool, block_type: crate::block::Type) {
+        if let Some((hit_pos, normal)) = self.camera.raycast(self.scene.chunks(), 6.0) {
+            if place {
+                let p = hit_pos + normal;
+                self.scene.chunks().set_block(p.x, p.y, p.z, block_type);
+            } else {
+                self.scene.chunks().set_block(
+                    hit_pos.x,
+                    hit_pos.y,
+                    hit_pos.z,
+                    crate::block::Type::Inactive,
+                );
+            }
+        }
+    }
+
+    pub fn update(&mut self, dt: Duration, selected_block_type: crate::block::Type) {
         self.ui.update(
             &self.camera.position(),
             self.scene.chunks().block_position(),
             self.scene.chunks().chunk_position(),
+            selected_block_type,
             dt,
         );
         self.scene.update(dt, &self.camera.position(), &self.device);
@@ -414,7 +431,7 @@ impl RenderState {
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
 
                 for chunk_col in self.scene.chunk_buffers().values() {
-                    for chunk in chunk_col {
+                    for chunk in chunk_col.iter().flatten() {
                         if let Some((index_buf, num_indices)) = &chunk.opaque_index_buffer {
                             render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
                             render_pass
@@ -432,7 +449,7 @@ impl RenderState {
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
 
                 for chunk_col in self.scene.chunk_buffers().values() {
-                    for chunk in chunk_col {
+                    for chunk in chunk_col.iter().flatten() {
                         if let Some((index_buf, num_indices)) = &chunk.transparent_index_buffer {
                             render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
                             render_pass
