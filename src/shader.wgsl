@@ -1,6 +1,7 @@
 // Vertex shader
 struct CameraUniform {
   view_proj: mat4x4<f32>,
+  view_pos: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 
@@ -47,6 +48,49 @@ fn light_color(light: LightUniform, pos: vec3<f32>, normal: vec3<f32>) -> vec3<f
   return light.color.xyz * diffuse_strength * light.color.w;
 }
 
+fn hash(p: vec3<f32>) -> f32 {
+    let p2 = fract(p * 0.1031);
+    let p3 = p2 + dot(p2, p2.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+fn smooth_noise(p: vec3<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+
+    return mix(
+        mix(
+            mix(hash(i + vec3<f32>(0.0, 0.0, 0.0)), hash(i + vec3<f32>(1.0, 0.0, 0.0)), u.x),
+            mix(hash(i + vec3<f32>(0.0, 1.0, 0.0)), hash(i + vec3<f32>(1.0, 1.0, 0.0)), u.x),
+            u.y
+        ),
+        mix(
+            mix(hash(i + vec3<f32>(0.0, 0.0, 1.0)), hash(i + vec3<f32>(1.0, 0.0, 1.0)), u.x),
+            mix(hash(i + vec3<f32>(0.0, 1.0, 1.0)), hash(i + vec3<f32>(1.0, 1.0, 1.0)), u.x),
+            u.y
+        ),
+        u.z
+    );
+}
+
+fn get_texture_noise(pos: vec3<f32>, color: vec4<f32>) -> f32 {
+    if color.w < 1.0 {
+        // Water: Swirly
+        let n1 = smooth_noise(pos * 4.0);
+        return smooth_noise(pos * 8.0 + vec3<f32>(n1 * 5.0));
+    } else if color.g > color.r && color.g > color.b && color.g > 0.4 {
+        // Grass: Streaky (stretch the Y coordinate)
+        let streaky_pos = vec3<f32>(pos.x * 16.0, pos.y * 2.0, pos.z * 16.0);
+        return smooth_noise(streaky_pos);
+    } else if color.r > 0.6 && color.g > 0.6 && color.b < 0.5 {
+        // Sand: Grainy (high frequency, no interpolation for pixelated look)
+        return hash(floor(pos * 32.0));
+    }
+    // Default (Dirt/Stone/Wood): slightly chunky
+    return smooth_noise(pos * 16.0);
+}
+
 // Fragment shader
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -59,7 +103,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   light_color += light_color(lights[0], in.world_position, in.world_normal);
   light_color += light_color(lights[1], in.world_position, in.world_normal);
 
-  let result = light_color * in.color.xyz * in.ao;
+  let noise_val = get_texture_noise(in.world_position, in.color);
+  
+  // Map noise from [0, 1] to something like [0.8, 1.1] to subtly perturb color
+  let color_variation = mix(0.8, 1.1, noise_val);
+  
+  let base_color = in.color.xyz * color_variation;
+
+  var result = light_color * base_color * in.ao;
+
+  // Underwater fog
+  if (camera.view_pos.y < 32.0) {
+      let fog_color = vec3<f32>(0.0, 0.2, 0.6);
+      let dist = distance(camera.view_pos.xyz, in.world_position);
+      let fog_factor = 1.0 - exp(-dist * 0.05);
+      result = mix(result, fog_color, fog_factor);
+  }
 
   return vec4<f32>(result, in.color.w);
 }

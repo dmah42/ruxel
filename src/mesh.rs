@@ -6,7 +6,8 @@ use noise::{Fbm, NoiseFn, Perlin};
 #[derive(Debug)]
 pub struct ChunkMesh {
     vertices: Vec<Vertex>,
-    indices: Vec<u32>,
+    opaque_indices: Vec<u32>,
+    transparent_indices: Vec<u32>,
 }
 
 impl ChunkMesh {
@@ -14,32 +15,49 @@ impl ChunkMesh {
         &self.vertices
     }
 
-    pub fn indices(&self) -> &[u32] {
-        &self.indices
+    pub fn opaque_indices(&self) -> &[u32] {
+        &self.opaque_indices
+    }
+
+    pub fn transparent_indices(&self) -> &[u32] {
+        &self.transparent_indices
     }
 
     pub fn build(chunk: &Chunk, terrain: &Fbm<Perlin>) -> Self {
         let mut vertices = Vec::new();
-        let mut indices = Vec::new();
+        let mut opaque_indices = Vec::new();
+        let mut transparent_indices = Vec::new();
 
         let blocks = chunk.blocks();
         let start = chunk.start();
 
-        let is_solid = |wx: i32, wy: i32, wz: i32| -> bool {
+        let is_opaque = |wx: i32, wy: i32, wz: i32| -> bool {
             let cx = wx - start.x as i32;
             let cy = wy - start.y as i32;
             let cz = wz - start.z as i32;
 
             if (0..16).contains(&cx) && (0..16).contains(&cy) && (0..16).contains(&cz) {
-                blocks[cx as usize][cy as usize][cz as usize].is_active()
+                let n = &blocks[cx as usize][cy as usize][cz as usize];
+                n.is_active() && n.color().a == 1.0
             } else {
-                if wy < 32 {
-                    true
-                } else {
-                    let point: [f64; 2] = [wx as f64 / 384.0, wz as f64 / 384.0];
-                    let height = ((terrain.get(point) + 1.0) * 32.0) as i32;
-                    wy < height
-                }
+                let point: [f64; 2] = [wx as f64 / 384.0, wz as f64 / 384.0];
+                let height = ((terrain.get(point) + 1.0) * 32.0) as i32;
+                wy < height
+            }
+        };
+
+        let is_transparent_block = |wx: i32, wy: i32, wz: i32| -> bool {
+            let cx = wx - start.x as i32;
+            let cy = wy - start.y as i32;
+            let cz = wz - start.z as i32;
+
+            if (0..16).contains(&cx) && (0..16).contains(&cy) && (0..16).contains(&cz) {
+                let n = &blocks[cx as usize][cy as usize][cz as usize];
+                n.is_active() && n.color().a < 1.0
+            } else {
+                let point: [f64; 2] = [wx as f64 / 384.0, wz as f64 / 384.0];
+                let height = ((terrain.get(point) + 1.0) * 32.0) as i32;
+                wy < 32 && wy >= height
             }
         };
 
@@ -71,7 +89,17 @@ impl ChunkMesh {
                         color.b as f32,
                         color.a as f32,
                     ];
+                    let is_transparent = color.a < 1.0;
                     let pos = start + Vec3::new(x as f32, y as f32, z as f32);
+
+                    let should_draw_face = |nx: i32, ny: i32, nz: i32| -> bool {
+                        let neighbor_opaque = is_opaque(nx, ny, nz);
+                        if is_transparent {
+                            !neighbor_opaque && !is_transparent_block(nx, ny, nz)
+                        } else {
+                            !neighbor_opaque
+                        }
+                    };
 
                     let mut add_face = |normal: [f32; 3], vts: &[[f32; 3]; 4], aos: [f32; 4]| {
                         let idx = vertices.len() as u32;
@@ -84,9 +112,15 @@ impl ChunkMesh {
                             ));
                         }
 
+                        let target_indices = if color_arr[3] < 1.0 {
+                            &mut transparent_indices
+                        } else {
+                            &mut opaque_indices
+                        };
+
                         // Flip quad depending on AO to prevent anisotropy
                         if aos[0] + aos[2] > aos[1] + aos[3] {
-                            indices.extend_from_slice(&[
+                            target_indices.extend_from_slice(&[
                                 idx,
                                 idx + 1,
                                 idx + 2,
@@ -95,7 +129,7 @@ impl ChunkMesh {
                                 idx,
                             ]);
                         } else {
-                            indices.extend_from_slice(&[
+                            target_indices.extend_from_slice(&[
                                 idx + 1,
                                 idx + 2,
                                 idx + 3,
@@ -111,15 +145,15 @@ impl ChunkMesh {
                     let wz = start.z as i32 + z as i32;
 
                     // X+ (Right)
-                    if !is_solid(wx + 1, wy, wz) {
-                        let a00 = is_solid(wx + 1, wy - 1, wz - 1);
-                        let a01 = is_solid(wx + 1, wy - 1, wz);
-                        let a02 = is_solid(wx + 1, wy - 1, wz + 1);
-                        let a10 = is_solid(wx + 1, wy, wz - 1);
-                        let a12 = is_solid(wx + 1, wy, wz + 1);
-                        let a20 = is_solid(wx + 1, wy + 1, wz - 1);
-                        let a21 = is_solid(wx + 1, wy + 1, wz);
-                        let a22 = is_solid(wx + 1, wy + 1, wz + 1);
+                    if should_draw_face(wx + 1, wy, wz) {
+                        let a00 = is_opaque(wx + 1, wy - 1, wz - 1);
+                        let a01 = is_opaque(wx + 1, wy - 1, wz);
+                        let a02 = is_opaque(wx + 1, wy - 1, wz + 1);
+                        let a10 = is_opaque(wx + 1, wy, wz - 1);
+                        let a12 = is_opaque(wx + 1, wy, wz + 1);
+                        let a20 = is_opaque(wx + 1, wy + 1, wz - 1);
+                        let a21 = is_opaque(wx + 1, wy + 1, wz);
+                        let a22 = is_opaque(wx + 1, wy + 1, wz + 1);
 
                         let ao0 = vertex_ao(a10, a01, a00); // [1, 0, 0]
                         let ao1 = vertex_ao(a21, a10, a20); // [1, 1, 0]
@@ -138,15 +172,15 @@ impl ChunkMesh {
                         );
                     }
                     // X- (Left)
-                    if !is_solid(wx - 1, wy, wz) {
-                        let a00 = is_solid(wx - 1, wy - 1, wz - 1);
-                        let a01 = is_solid(wx - 1, wy - 1, wz);
-                        let a02 = is_solid(wx - 1, wy - 1, wz + 1);
-                        let a10 = is_solid(wx - 1, wy, wz - 1);
-                        let a12 = is_solid(wx - 1, wy, wz + 1);
-                        let a20 = is_solid(wx - 1, wy + 1, wz - 1);
-                        let a21 = is_solid(wx - 1, wy + 1, wz);
-                        let a22 = is_solid(wx - 1, wy + 1, wz + 1);
+                    if should_draw_face(wx - 1, wy, wz) {
+                        let a00 = is_opaque(wx - 1, wy - 1, wz - 1);
+                        let a01 = is_opaque(wx - 1, wy - 1, wz);
+                        let a02 = is_opaque(wx - 1, wy - 1, wz + 1);
+                        let a10 = is_opaque(wx - 1, wy, wz - 1);
+                        let a12 = is_opaque(wx - 1, wy, wz + 1);
+                        let a20 = is_opaque(wx - 1, wy + 1, wz - 1);
+                        let a21 = is_opaque(wx - 1, wy + 1, wz);
+                        let a22 = is_opaque(wx - 1, wy + 1, wz + 1);
 
                         let ao0 = vertex_ao(a01, a12, a02); // [0, 0, 1]
                         let ao1 = vertex_ao(a12, a21, a22); // [0, 1, 1]
@@ -165,15 +199,15 @@ impl ChunkMesh {
                         );
                     }
                     // Y+ (Top)
-                    if !is_solid(wx, wy + 1, wz) {
-                        let a00 = is_solid(wx - 1, wy + 1, wz - 1);
-                        let a01 = is_solid(wx - 1, wy + 1, wz);
-                        let a02 = is_solid(wx - 1, wy + 1, wz + 1);
-                        let a10 = is_solid(wx, wy + 1, wz - 1);
-                        let a12 = is_solid(wx, wy + 1, wz + 1);
-                        let a20 = is_solid(wx + 1, wy + 1, wz - 1);
-                        let a21 = is_solid(wx + 1, wy + 1, wz);
-                        let a22 = is_solid(wx + 1, wy + 1, wz + 1);
+                    if should_draw_face(wx, wy + 1, wz) {
+                        let a00 = is_opaque(wx - 1, wy + 1, wz - 1);
+                        let a01 = is_opaque(wx - 1, wy + 1, wz);
+                        let a02 = is_opaque(wx - 1, wy + 1, wz + 1);
+                        let a10 = is_opaque(wx, wy + 1, wz - 1);
+                        let a12 = is_opaque(wx, wy + 1, wz + 1);
+                        let a20 = is_opaque(wx + 1, wy + 1, wz - 1);
+                        let a21 = is_opaque(wx + 1, wy + 1, wz);
+                        let a22 = is_opaque(wx + 1, wy + 1, wz + 1);
 
                         let ao0 = vertex_ao(a12, a01, a02); // [0, 1, 1]
                         let ao1 = vertex_ao(a21, a12, a22); // [1, 1, 1]
@@ -192,15 +226,15 @@ impl ChunkMesh {
                         );
                     }
                     // Y- (Bottom)
-                    if !is_solid(wx, wy - 1, wz) {
-                        let a00 = is_solid(wx - 1, wy - 1, wz - 1);
-                        let a01 = is_solid(wx - 1, wy - 1, wz);
-                        let a02 = is_solid(wx - 1, wy - 1, wz + 1);
-                        let a10 = is_solid(wx, wy - 1, wz - 1);
-                        let a12 = is_solid(wx, wy - 1, wz + 1);
-                        let a20 = is_solid(wx + 1, wy - 1, wz - 1);
-                        let a21 = is_solid(wx + 1, wy - 1, wz);
-                        let a22 = is_solid(wx + 1, wy - 1, wz + 1);
+                    if should_draw_face(wx, wy - 1, wz) {
+                        let a00 = is_opaque(wx - 1, wy - 1, wz - 1);
+                        let a01 = is_opaque(wx - 1, wy - 1, wz);
+                        let a02 = is_opaque(wx - 1, wy - 1, wz + 1);
+                        let a10 = is_opaque(wx, wy - 1, wz - 1);
+                        let a12 = is_opaque(wx, wy - 1, wz + 1);
+                        let a20 = is_opaque(wx + 1, wy - 1, wz - 1);
+                        let a21 = is_opaque(wx + 1, wy - 1, wz);
+                        let a22 = is_opaque(wx + 1, wy - 1, wz + 1);
 
                         let ao0 = vertex_ao(a01, a10, a00); // [0, 0, 0]
                         let ao1 = vertex_ao(a10, a21, a20); // [1, 0, 0]
@@ -219,15 +253,15 @@ impl ChunkMesh {
                         );
                     }
                     // Z+ (Front)
-                    if !is_solid(wx, wy, wz + 1) {
-                        let a00 = is_solid(wx - 1, wy - 1, wz + 1);
-                        let a01 = is_solid(wx - 1, wy, wz + 1);
-                        let a02 = is_solid(wx - 1, wy + 1, wz + 1);
-                        let a10 = is_solid(wx, wy - 1, wz + 1);
-                        let a12 = is_solid(wx, wy + 1, wz + 1);
-                        let a20 = is_solid(wx + 1, wy - 1, wz + 1);
-                        let a21 = is_solid(wx + 1, wy, wz + 1);
-                        let a22 = is_solid(wx + 1, wy + 1, wz + 1);
+                    if should_draw_face(wx, wy, wz + 1) {
+                        let a00 = is_opaque(wx - 1, wy - 1, wz + 1);
+                        let a01 = is_opaque(wx - 1, wy, wz + 1);
+                        let a02 = is_opaque(wx - 1, wy + 1, wz + 1);
+                        let a10 = is_opaque(wx, wy - 1, wz + 1);
+                        let a12 = is_opaque(wx, wy + 1, wz + 1);
+                        let a20 = is_opaque(wx + 1, wy - 1, wz + 1);
+                        let a21 = is_opaque(wx + 1, wy, wz + 1);
+                        let a22 = is_opaque(wx + 1, wy + 1, wz + 1);
 
                         let ao0 = vertex_ao(a01, a10, a00); // [0, 0, 1]
                         let ao1 = vertex_ao(a10, a21, a20); // [1, 0, 1]
@@ -246,15 +280,15 @@ impl ChunkMesh {
                         );
                     }
                     // Z- (Back)
-                    if !is_solid(wx, wy, wz - 1) {
-                        let a00 = is_solid(wx - 1, wy - 1, wz - 1);
-                        let a01 = is_solid(wx - 1, wy, wz - 1);
-                        let a02 = is_solid(wx - 1, wy + 1, wz - 1);
-                        let a10 = is_solid(wx, wy - 1, wz - 1);
-                        let a12 = is_solid(wx, wy + 1, wz - 1);
-                        let a20 = is_solid(wx + 1, wy - 1, wz - 1);
-                        let a21 = is_solid(wx + 1, wy, wz - 1);
-                        let a22 = is_solid(wx + 1, wy + 1, wz - 1);
+                    if should_draw_face(wx, wy, wz - 1) {
+                        let a00 = is_opaque(wx - 1, wy - 1, wz - 1);
+                        let a01 = is_opaque(wx - 1, wy, wz - 1);
+                        let a02 = is_opaque(wx - 1, wy + 1, wz - 1);
+                        let a10 = is_opaque(wx, wy - 1, wz - 1);
+                        let a12 = is_opaque(wx, wy + 1, wz - 1);
+                        let a20 = is_opaque(wx + 1, wy - 1, wz - 1);
+                        let a21 = is_opaque(wx + 1, wy, wz - 1);
+                        let a22 = is_opaque(wx + 1, wy + 1, wz - 1);
 
                         let ao0 = vertex_ao(a10, a21, a20); // [1, 0, 0]
                         let ao1 = vertex_ao(a01, a10, a00); // [0, 0, 0]
@@ -276,6 +310,10 @@ impl ChunkMesh {
             }
         }
 
-        Self { vertices, indices }
+        Self {
+            vertices,
+            opaque_indices,
+            transparent_indices,
+        }
     }
 }

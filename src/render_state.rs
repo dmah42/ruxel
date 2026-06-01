@@ -19,6 +19,7 @@ pub struct RenderState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     render_pipeline: wgpu::RenderPipeline,
+    transparent_pipeline: wgpu::RenderPipeline,
     sun_render_pipeline: wgpu::RenderPipeline,
     moon_render_pipeline: wgpu::RenderPipeline,
 
@@ -131,7 +132,7 @@ impl RenderState {
                 label: Some("camera bind group layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -204,6 +205,29 @@ impl RenderState {
                 Some(Texture::DEPTH_FORMAT),
                 &[Vertex::desc()],
                 wgpu::include_wgsl!("shader.wgsl"),
+                true,
+                wgpu::BlendState::REPLACE,
+                Some(wgpu::Face::Back),
+            )
+        };
+
+        let transparent_pipeline = {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("transparent pipeline layout"),
+                bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            create_render_pipeline(
+                &device,
+                &layout,
+                config.format,
+                Some(Texture::DEPTH_FORMAT),
+                &[Vertex::desc()],
+                wgpu::include_wgsl!("shader.wgsl"),
+                false, // depth_write_enabled
+                wgpu::BlendState::ALPHA_BLENDING,
+                None,
             )
         };
 
@@ -221,6 +245,9 @@ impl RenderState {
                 Some(Texture::DEPTH_FORMAT),
                 &[SimpleVertex::desc()],
                 wgpu::include_wgsl!("sun.wgsl"),
+                true,
+                wgpu::BlendState::REPLACE,
+                Some(wgpu::Face::Back),
             )
         };
 
@@ -238,6 +265,9 @@ impl RenderState {
                 Some(Texture::DEPTH_FORMAT),
                 &[SimpleVertex::desc()],
                 wgpu::include_wgsl!("moon.wgsl"),
+                true,
+                wgpu::BlendState::ALPHA_BLENDING,
+                Some(wgpu::Face::Back),
             )
         };
 
@@ -248,6 +278,7 @@ impl RenderState {
             queue,
             config,
             render_pipeline,
+            transparent_pipeline,
             sun_render_pipeline,
             moon_render_pipeline,
             ui,
@@ -374,19 +405,33 @@ impl RenderState {
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
-                
+
                 for chunk_col in self.scene.chunk_buffers().values() {
                     for chunk in chunk_col {
-                        render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(
-                            chunk.index_buffer.slice(..),
-                            wgpu::IndexFormat::Uint32,
-                        );
-                        render_pass.draw_indexed(
-                            0..chunk.num_indices,
-                            0,
-                            0..1,
-                        );
+                        if let Some((index_buf, num_indices)) = &chunk.opaque_index_buffer {
+                            render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
+                            render_pass
+                                .set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                            render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                        }
+                    }
+                }
+            }
+
+            // draw transparent blocks (water)
+            {
+                render_pass.set_pipeline(&self.transparent_pipeline);
+                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.light_bind_group, &[]);
+
+                for chunk_col in self.scene.chunk_buffers().values() {
+                    for chunk in chunk_col {
+                        if let Some((index_buf, num_indices)) = &chunk.transparent_index_buffer {
+                            render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
+                            render_pass
+                                .set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                            render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                        }
                     }
                 }
             }
@@ -406,6 +451,9 @@ fn create_render_pipeline(
     depth_format: Option<wgpu::TextureFormat>,
     vertex_layouts: &[wgpu::VertexBufferLayout],
     shader: wgpu::ShaderModuleDescriptor,
+    depth_write_enabled: bool,
+    blend_state: wgpu::BlendState,
+    cull_mode: Option<wgpu::Face>,
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(shader);
 
@@ -421,14 +469,14 @@ fn create_render_pipeline(
             topology: wgpu::PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: wgpu::FrontFace::Ccw,
-            cull_mode: Some(wgpu::Face::Back),
+            cull_mode,
             polygon_mode: wgpu::PolygonMode::Fill,
             unclipped_depth: false,
             conservative: false,
         },
         depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
             format,
-            depth_write_enabled: true,
+            depth_write_enabled,
             depth_compare: wgpu::CompareFunction::Less,
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
@@ -443,7 +491,7 @@ fn create_render_pipeline(
             entry_point: "fs_main",
             targets: &[Some(wgpu::ColorTargetState {
                 format: color_format,
-                blend: Some(wgpu::BlendState::REPLACE),
+                blend: Some(blend_state),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),

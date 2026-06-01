@@ -4,7 +4,7 @@ use crate::{
     chunks::Chunks,
     light::{Light, RawLight},
     sky::Sky,
-    vertex::{CUBE_VERTICES, CUBE_INDICES},
+    vertex::{CUBE_INDICES, CUBE_VERTICES},
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{Quat, Vec3};
@@ -34,8 +34,8 @@ impl Lights {
 
 pub struct ChunkBuffers {
     pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
-    pub num_indices: u32,
+    pub opaque_index_buffer: Option<(wgpu::Buffer, u32)>,
+    pub transparent_index_buffer: Option<(wgpu::Buffer, u32)>,
 }
 
 pub struct Scene {
@@ -172,32 +172,59 @@ impl Scene {
     fn update_chunk_buffers(&mut self, device: &wgpu::Device) {
         let loaded = self.chunks.loaded();
         let mut locked_loaded = loaded.lock().expect("");
-        
+
         // Remove buffers for chunks that are no longer loaded
-        self.chunk_buffers.retain(|key, _| locked_loaded.contains_key(key));
-        
+        self.chunk_buffers
+            .retain(|key, _| locked_loaded.contains_key(key));
+
         for (key, chunks) in locked_loaded.iter_mut() {
             if !self.chunk_buffers.contains_key(key) {
                 let mut col_buffers = Vec::new();
                 for chunk in chunks.iter_mut() {
                     if let Some(mesh) = chunk.take_mesh() {
-                        if mesh.indices().is_empty() {
+                        let opaque_indices = mesh.opaque_indices();
+                        let transparent_indices = mesh.transparent_indices();
+
+                        if opaque_indices.is_empty() && transparent_indices.is_empty() {
                             continue; // skip empty meshes
                         }
-                        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("chunk vertex buffer"),
-                            contents: bytemuck::cast_slice(mesh.vertices()),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-                        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("chunk index buffer"),
-                            contents: bytemuck::cast_slice(mesh.indices()),
-                            usage: wgpu::BufferUsages::INDEX,
-                        });
+                        let vertex_buffer =
+                            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("chunk vertex buffer"),
+                                contents: bytemuck::cast_slice(mesh.vertices()),
+                                usage: wgpu::BufferUsages::VERTEX,
+                            });
+
+                        let opaque_index_buffer = if !opaque_indices.is_empty() {
+                            Some((
+                                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("chunk opaque index buffer"),
+                                    contents: bytemuck::cast_slice(opaque_indices),
+                                    usage: wgpu::BufferUsages::INDEX,
+                                }),
+                                opaque_indices.len() as u32,
+                            ))
+                        } else {
+                            None
+                        };
+
+                        let transparent_index_buffer = if !transparent_indices.is_empty() {
+                            Some((
+                                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("chunk transparent index buffer"),
+                                    contents: bytemuck::cast_slice(transparent_indices),
+                                    usage: wgpu::BufferUsages::INDEX,
+                                }),
+                                transparent_indices.len() as u32,
+                            ))
+                        } else {
+                            None
+                        };
+
                         col_buffers.push(ChunkBuffers {
                             vertex_buffer,
-                            index_buffer,
-                            num_indices: mesh.indices().len() as u32,
+                            opaque_index_buffer,
+                            transparent_index_buffer,
                         });
                     }
                 }

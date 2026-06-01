@@ -16,17 +16,20 @@ const JUMP_VELOCITY: f32 = 10.0;
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Uniform {
     view_proj: [f32; 16],
+    view_pos: [f32; 4],
 }
 
 impl Uniform {
     pub fn new() -> Self {
         Self {
             view_proj: *Mat4::IDENTITY.as_ref(),
+            view_pos: [0.0; 4],
         }
     }
 
     pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection) {
         self.view_proj = *(projection.matrix() * camera.matrix()).as_ref();
+        self.view_pos = [camera.position.x, camera.position.y, camera.position.z, 1.0];
     }
 }
 
