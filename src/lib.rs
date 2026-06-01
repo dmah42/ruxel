@@ -1,8 +1,8 @@
 mod block;
 mod camera;
 mod chunks;
-mod instance;
 mod light;
+mod mesh;
 mod render_state;
 mod scene;
 mod sky;

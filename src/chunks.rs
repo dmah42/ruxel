@@ -17,6 +17,7 @@ use crate::block::{self, Block};
 pub struct Chunk {
     blocks: [[[Block; 16]; 16]; 16],
     start: Vec3,
+    mesh: Option<crate::mesh::ChunkMesh>,
 }
 
 impl Chunk {
@@ -26,6 +27,10 @@ impl Chunk {
 
     pub fn start(&self) -> Vec3 {
         self.start
+    }
+
+    pub fn take_mesh(&mut self) -> Option<crate::mesh::ChunkMesh> {
+        self.mesh.take()
     }
 }
 
@@ -191,6 +196,7 @@ fn load_chunks(terrain: &Fbm<Perlin>, key: UVec2) -> Vec<Chunk> {
                 16.0 * (chunky as f32),
                 16.0 * (key.y as f32),
             ),
+            mesh: None,
         };
         for (x, row) in chunk.blocks.iter_mut().enumerate() {
             for (y, col) in row.iter_mut().enumerate() {
@@ -214,6 +220,7 @@ fn load_chunks(terrain: &Fbm<Perlin>, key: UVec2) -> Vec<Chunk> {
                 }
             }
         }
+        chunk.mesh = Some(crate::mesh::ChunkMesh::build(&chunk));
         chunks.push(chunk);
     }
     chunks

@@ -3,11 +3,10 @@ use std::time::Duration;
 use crate::{
     camera,
     camera::{Camera, Projection},
-    instance::Instance,
     scene::Scene,
     texture::Texture,
     ui::Ui,
-    vertex::Vertex,
+    vertex::{SimpleVertex, Vertex},
 };
 use rand::Rng;
 use wgpu::util::DeviceExt;
@@ -203,7 +202,7 @@ impl RenderState {
                 &layout,
                 config.format,
                 Some(Texture::DEPTH_FORMAT),
-                &[Vertex::desc(), Instance::desc()],
+                &[Vertex::desc()],
                 wgpu::include_wgsl!("shader.wgsl"),
             )
         };
@@ -220,7 +219,7 @@ impl RenderState {
                 &layout,
                 config.format,
                 Some(Texture::DEPTH_FORMAT),
-                &[Vertex::desc()],
+                &[SimpleVertex::desc()],
                 wgpu::include_wgsl!("sun.wgsl"),
             )
         };
@@ -237,7 +236,7 @@ impl RenderState {
                 &layout,
                 config.format,
                 Some(Texture::DEPTH_FORMAT),
-                &[Vertex::desc()],
+                &[SimpleVertex::desc()],
                 wgpu::include_wgsl!("moon.wgsl"),
             )
         };
@@ -375,17 +374,21 @@ impl RenderState {
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.scene.vertex_buffer().slice(..));
-                render_pass.set_vertex_buffer(1, self.scene.instance_buffer().slice(..));
-                render_pass.set_index_buffer(
-                    self.scene.index_buffer().slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
-                render_pass.draw_indexed(
-                    0..self.scene.num_indices(),
-                    0,
-                    0..self.scene.num_instances() as _,
-                );
+                
+                for chunk_col in self.scene.chunk_buffers().values() {
+                    for chunk in chunk_col {
+                        render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            chunk.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(
+                            0..chunk.num_indices,
+                            0,
+                            0..1,
+                        );
+                    }
+                }
             }
         }
         let ui_buffer = self.ui.render(&self.device, &self.queue, &view);

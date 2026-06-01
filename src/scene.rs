@@ -1,11 +1,10 @@
 use std::time::Duration;
 
 use crate::{
-    block::Block,
     chunks::Chunks,
-    instance::{Instance, RawInstance},
     light::{Light, RawLight},
     sky::Sky,
+    vertex::{CUBE_VERTICES, CUBE_INDICES},
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{Quat, Vec3};
@@ -33,14 +32,19 @@ impl Lights {
     }
 }
 
+pub struct ChunkBuffers {
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub num_indices: u32,
+}
+
 pub struct Scene {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
 
     chunks: Chunks,
-    instances: Vec<Instance>,
-    instance_buffer: wgpu::Buffer,
+    chunk_buffers: std::collections::HashMap<glam::UVec2, Vec<ChunkBuffers>>,
 
     sun_offset: Vec3,
     moon_offset: Vec3,
@@ -55,16 +59,16 @@ impl Scene {
     pub fn new(seed: u32, device: &wgpu::Device) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
-            contents: bytemuck::cast_slice(Block::VERTICES),
+            contents: bytemuck::cast_slice(CUBE_VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("index buffer"),
-            contents: bytemuck::cast_slice(Block::INDICES),
+            contents: bytemuck::cast_slice(CUBE_INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
-        let num_indices = Block::INDICES.len() as u32;
+        let num_indices = CUBE_INDICES.len() as u32;
 
         let chunks = Chunks::new(seed);
 
@@ -99,20 +103,14 @@ impl Scene {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let instance_data: Vec<RawInstance> = vec![];
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("instance buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let chunk_buffers = std::collections::HashMap::new();
 
         Self {
             vertex_buffer,
             index_buffer,
             num_indices,
 
-            instances: vec![],
-            instance_buffer,
+            chunk_buffers,
 
             sun_offset: Vec3::new(64.0, 64.0, 0.0),
             moon_offset: Vec3::new(-64.0, -64.0, 32.0),
@@ -141,12 +139,8 @@ impl Scene {
         self.num_indices
     }
 
-    pub fn instance_buffer(&self) -> &wgpu::Buffer {
-        &self.instance_buffer
-    }
-
-    pub fn num_instances(&self) -> u32 {
-        self.instances.len() as u32
+    pub fn chunk_buffers(&self) -> &std::collections::HashMap<glam::UVec2, Vec<ChunkBuffers>> {
+        &self.chunk_buffers
     }
 
     pub fn lights(&self) -> &Lights {
@@ -162,7 +156,7 @@ impl Scene {
 
     pub fn update(&mut self, dt: Duration, player_position: &Vec3, device: &wgpu::Device) {
         self.chunks.update(player_position);
-        self.create_instances(device);
+        self.update_chunk_buffers(device);
 
         // move the sun and moon
         // TODO: precess slowly around Z too
@@ -175,38 +169,40 @@ impl Scene {
         self.sky.update(dt, &self.lights.lights[0].position);
     }
 
-    fn create_instances(&mut self, device: &wgpu::Device) {
-        self.instances.clear();
-        // TODO: only update chunks that are new, and drop instances that are no longer valid.
-        for chunks in self.chunks.loaded().lock().expect("").values() {
-            for chunk in chunks.iter() {
-                for (x, row) in chunk.blocks().iter().enumerate() {
-                    for (y, col) in row.iter().enumerate() {
-                        for (z, block) in col.iter().enumerate() {
-                            let block_position =
-                                chunk.start() + Vec3::new(x as f32, y as f32, z as f32);
-                            if block.is_active() {
-                                self.instances
-                                    .push(Instance::new(block_position, block.color()));
-                            }
+    fn update_chunk_buffers(&mut self, device: &wgpu::Device) {
+        let loaded = self.chunks.loaded();
+        let mut locked_loaded = loaded.lock().expect("");
+        
+        // Remove buffers for chunks that are no longer loaded
+        self.chunk_buffers.retain(|key, _| locked_loaded.contains_key(key));
+        
+        for (key, chunks) in locked_loaded.iter_mut() {
+            if !self.chunk_buffers.contains_key(key) {
+                let mut col_buffers = Vec::new();
+                for chunk in chunks.iter_mut() {
+                    if let Some(mesh) = chunk.take_mesh() {
+                        if mesh.indices().is_empty() {
+                            continue; // skip empty meshes
                         }
+                        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("chunk vertex buffer"),
+                            contents: bytemuck::cast_slice(mesh.vertices()),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("chunk index buffer"),
+                            contents: bytemuck::cast_slice(mesh.indices()),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
+                        col_buffers.push(ChunkBuffers {
+                            vertex_buffer,
+                            index_buffer,
+                            num_indices: mesh.indices().len() as u32,
+                        });
                     }
                 }
+                self.chunk_buffers.insert(*key, col_buffers);
             }
         }
-        let instance_data = self
-            .instances
-            .iter()
-            .map(Instance::to_raw)
-            .collect::<Vec<_>>();
-
-        // NOTE: we can't just write the buffer as the size of instance data may change from update
-        // to update.
-        self.instance_buffer.destroy();
-        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("instance buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
     }
 }

@@ -6,14 +6,16 @@ use bytemuck::{Pod, Zeroable};
 pub struct Vertex {
     position: [f32; 3],
     normal: [f32; 3],
+    color: [f32; 4],
+    ao: f32,
 }
 
 impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+    const ATTRIBS: [wgpu::VertexAttribute; 4] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32];
 
-    pub const fn new(position: [f32; 3], normal: [f32; 3]) -> Self {
-        Vertex { position, normal }
+    pub const fn new(position: [f32; 3], normal: [f32; 3], color: [f32; 4], ao: f32) -> Self {
+        Vertex { position, normal, color, ao }
     }
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -24,3 +26,73 @@ impl Vertex {
         }
     }
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct SimpleVertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+}
+
+impl SimpleVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 2] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+
+    pub const fn new(position: [f32; 3], normal: [f32; 3]) -> Self {
+        SimpleVertex { position, normal }
+    }
+
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<SimpleVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
+        }
+    }
+}
+
+const fn simple_vertex(pos: [i8; 3], n: [f32; 3]) -> SimpleVertex {
+    SimpleVertex::new([pos[0] as f32, pos[1] as f32, pos[2] as f32], n)
+}
+
+pub const CUBE_VERTICES: &[SimpleVertex] = &[
+    // top (0, 0, 1)
+    simple_vertex([0, 0, 1], [0.0, 0.0, 1.0]),
+    simple_vertex([1, 0, 1], [0.0, 0.0, 1.0]),
+    simple_vertex([1, 1, 1], [0.0, 0.0, 1.0]),
+    simple_vertex([0, 1, 1], [0.0, 0.0, 1.0]),
+    // bottom (0, 0, -1)
+    simple_vertex([0, 1, 0], [0.0, 0.0, -1.0]),
+    simple_vertex([1, 1, 0], [0.0, 0.0, -1.0]),
+    simple_vertex([1, 0, 0], [0.0, 0.0, -1.0]),
+    simple_vertex([0, 0, 0], [0.0, 0.0, -1.0]),
+    // right (1, 0, 0)
+    simple_vertex([1, 0, 0], [1.0, 0.0, 0.0]),
+    simple_vertex([1, 1, 0], [1.0, 0.0, 0.0]),
+    simple_vertex([1, 1, 1], [1.0, 0.0, 0.0]),
+    simple_vertex([1, 0, 1], [1.0, 0.0, 0.0]),
+    // left (-1, 0, 0)
+    simple_vertex([0, 0, 1], [-1.0, 0.0, 0.0]),
+    simple_vertex([0, 1, 1], [-1.0, 0.0, 0.0]),
+    simple_vertex([0, 1, 0], [-1.0, 0.0, 0.0]),
+    simple_vertex([0, 0, 0], [-1.0, 0.0, 0.0]),
+    // front (0, 1, 0)
+    simple_vertex([1, 1, 0], [0.0, 1.0, 0.0]),
+    simple_vertex([0, 1, 0], [0.0, 1.0, 0.0]),
+    simple_vertex([0, 1, 1], [0.0, 1.0, 0.0]),
+    simple_vertex([1, 1, 1], [0.0, 1.0, 0.0]),
+    // back (0, -1, 0)
+    simple_vertex([1, 0, 1], [0.0, -1.0, 0.0]),
+    simple_vertex([0, 0, 1], [0.0, -1.0, 0.0]),
+    simple_vertex([0, 0, 0], [0.0, -1.0, 0.0]),
+    simple_vertex([1, 0, 0], [0.0, -1.0, 0.0]),
+];
+
+pub const CUBE_INDICES: &[u16] = &[
+    0, 1, 2, 2, 3, 0, // top
+    4, 5, 6, 6, 7, 4, // bottom
+    8, 9, 10, 10, 11, 8, // right
+    12, 13, 14, 14, 15, 12, // left
+    16, 17, 18, 18, 19, 16, // front
+    20, 21, 22, 22, 23, 20, // back
+];
