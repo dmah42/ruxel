@@ -220,7 +220,7 @@ fn load_chunks(terrain: &Fbm<Perlin>, key: UVec2) -> Vec<Chunk> {
                 }
             }
         }
-        chunk.mesh = Some(crate::mesh::ChunkMesh::build(&chunk));
+        chunk.mesh = Some(crate::mesh::ChunkMesh::build(&chunk, terrain));
         chunks.push(chunk);
     }
     chunks

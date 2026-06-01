@@ -26,6 +26,7 @@ struct VertexOutput {
   @location(0) color: vec4<f32>,
   @location(1) world_normal: vec3<f32>,
   @location(2) world_position: vec3<f32>,
+  @location(3) ao: f32,
 }
 
 @vertex
@@ -34,6 +35,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
   out.color = model.color;
   out.world_normal = model.normal;
   out.world_position = model.position;
+  out.ao = model.ao;
   out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
   return out;
 }
@@ -57,7 +59,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   light_color += light_color(lights[0], in.world_position, in.world_normal);
   light_color += light_color(lights[1], in.world_position, in.world_normal);
 
-  let result = light_color * in.color.xyz;
+  let result = light_color * in.color.xyz * in.ao;
 
   return vec4<f32>(result, in.color.w);
 }
