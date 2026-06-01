@@ -97,11 +97,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let ambient_strength = 0.1;
   let ambient_color = sky * ambient_strength;
 
-  var light_color = ambient_color;
+  var total_light = ambient_color;
 
   let lights = lights.lights;
-  light_color += light_color(lights[0], in.world_position, in.world_normal);
-  light_color += light_color(lights[1], in.world_position, in.world_normal);
+  total_light += light_color(lights[0], in.world_position, in.world_normal);
+  total_light += light_color(lights[1], in.world_position, in.world_normal);
 
   let noise_val = get_texture_noise(in.world_position, in.color);
   
@@ -110,7 +110,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   
   let base_color = in.color.xyz * color_variation;
 
-  var result = light_color * base_color * in.ao;
+  var result = total_light * base_color * in.ao;
 
   // Underwater fog
   if (camera.view_pos.y < 32.0) {
