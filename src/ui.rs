@@ -91,7 +91,11 @@ impl Ui {
         );
         self.brush.queue(
             Section::default()
-                .add_text(Text::new(&self.target).with_scale(30.0))
+                .add_text(
+                    Text::new(&self.target)
+                        .with_scale(48.0)
+                        .with_color([0.0, 0.0, 0.0, 0.7]),
+                )
                 .with_screen_position(self.center),
         );
         self.brush
