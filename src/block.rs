@@ -1,5 +1,3 @@
-use crate::vertex::Vertex;
-
 #[derive(Debug, Copy, Clone)]
 pub enum Type {
     Inactive,
@@ -9,8 +7,6 @@ pub enum Type {
     Ice,
     Water,
 }
-
-
 
 #[derive(Debug, Copy, Clone)]
 pub struct Block {
