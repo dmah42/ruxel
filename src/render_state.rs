@@ -97,8 +97,18 @@ impl RenderState {
         let scene = Scene::new(seed, &device);
 
         let mut rng = rand::thread_rng();
-        let playerx = rng.gen_range(2000.0..4000.0);
-        let playerz = rng.gen_range(2000.0..4000.0);
+        let mut playerx = rng.gen_range(2000.0..4000.0);
+        let mut playerz = rng.gen_range(2000.0..4000.0);
+
+        while scene
+            .chunks()
+            .height_at(&glam::Vec3::new(playerx, 0.0, playerz))
+            <= 32.0
+        {
+            playerx = rng.gen_range(2000.0..4000.0);
+            playerz = rng.gen_range(2000.0..4000.0);
+        }
+
         let camera = Camera::new(glam::Vec3::new(playerx, 50.0, playerz), 0.0, 0.0);
 
         let projection = Projection::new(

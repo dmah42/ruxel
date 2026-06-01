@@ -8,8 +8,9 @@ use winit::{
 };
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.001;
-const GRAVITY: f32 = 3.0;
-const PLAYER_HEIGHT: f32 = 2.4;
+const GRAVITY: f32 = 15.0;
+const PLAYER_HEIGHT: f32 = 2.6;
+const JUMP_VELOCITY: f32 = 10.0;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -92,11 +93,11 @@ impl Camera {
     pub fn update_physics(&mut self, height: f32, dt: Duration) {
         let dt = dt.as_secs_f32();
         let height = height + PLAYER_HEIGHT;
-        // gravity
-        if self.position.y > height {
-            self.velocity_y -= GRAVITY * dt;
-            self.position.y += self.velocity_y * dt;
-        }
+
+        // apply gravity and velocity
+        self.velocity_y -= GRAVITY * dt;
+        self.position.y += self.velocity_y * dt;
+
         // collision with ground
         if self.position.y < height {
             self.position.y = height;
@@ -110,8 +111,12 @@ pub struct Controller {
     amount_right: f32,
     amount_forward: f32,
     amount_backward: f32,
+
+    // These are velocities.
     amount_up: f32,
     amount_down: f32,
+
+    is_jumping: bool,
 
     rotate_horiz: f32,
     rotate_vert: f32,
@@ -129,8 +134,12 @@ impl Controller {
             amount_right: 0.0,
             amount_forward: 0.0,
             amount_backward: 0.0,
+
+            // These are velocities.
             amount_up: 0.0,
             amount_down: 0.0,
+
+            is_jumping: false,
 
             rotate_horiz: 0.0,
             rotate_vert: 0.0,
@@ -152,6 +161,7 @@ impl Controller {
         } else {
             0.0
         };
+
         match keycode {
             //13 | 126 => {
             VirtualKeyCode::W | VirtualKeyCode::Up => {
@@ -173,10 +183,13 @@ impl Controller {
                 self.amount_right = amount;
                 true
             }
-            //VirtualKeyCode::Space => {
-            //    self.amount_up = amount;
-            //    true
-            //}
+            VirtualKeyCode::Space => {
+                if !self.is_jumping && state == ElementState::Pressed {
+                    self.amount_up = JUMP_VELOCITY;
+                    self.is_jumping = true;
+                }
+                true
+            }
             //VirtualKeyCode::LShift => {
             //    self.amount_down = amount;
             //    true
@@ -215,8 +228,15 @@ impl Controller {
         self.scroll = 0.0;
 
         // up and down
-        // TODO: jump
-        camera.position.y += (self.amount_up - self.amount_down) * self.speed * dt;
+        if self.amount_up > 0.0 {
+            camera.velocity_y = self.amount_up;
+            self.amount_up = 0.0;
+        }
+        camera.position.y -= self.amount_down * self.speed * dt;
+
+        if camera.velocity_y == 0.0 {
+            self.is_jumping = false;
+        }
 
         // rotate
         camera.yaw += self.rotate_horiz * self.sensitivity * dt;
@@ -226,10 +246,6 @@ impl Controller {
         self.rotate_vert = 0.0;
 
         // limit pitch
-        if camera.pitch < -SAFE_FRAC_PI_2 {
-            camera.pitch = -SAFE_FRAC_PI_2;
-        } else if camera.pitch > SAFE_FRAC_PI_2 {
-            camera.pitch = SAFE_FRAC_PI_2;
-        }
+        camera.pitch = camera.pitch.clamp(-SAFE_FRAC_PI_2, SAFE_FRAC_PI_2);
     }
 }
