@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use glam::{IVec2, Vec3};
+use glam::{IVec2, Vec2, Vec3};
 use wgpu::{CommandBuffer, Device, Queue, SurfaceConfiguration, TextureView};
 use wgpu_text::{
     font::FontArc,
@@ -13,6 +13,8 @@ pub struct Ui {
     player_position: String,
     block_position: String,
     chunk_position: String,
+    target: String,
+    center: Vec2,
     fps: u32,
     total_time: Duration,
     fps_str: String,
@@ -29,6 +31,8 @@ impl Ui {
             player_position: String::from(""),
             block_position: String::from(""),
             chunk_position: String::from(""),
+            target: String::from("+"),
+            center: Vec2::new(0.0, 0.0),
             fps: 0,
             total_time: Duration::new(0, 0),
             fps_str: String::from("FPS: 0"),
@@ -59,6 +63,7 @@ impl Ui {
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>, queue: &Queue) {
+        self.center = Vec2::new(new_size.width as f32 / 2.0, new_size.height as f32 / 2.0);
         self.brush
             .resize_view(new_size.width as f32, new_size.height as f32, queue);
     }
@@ -83,6 +88,11 @@ impl Ui {
             Section::default()
                 .add_text(Text::new(&self.fps_str).with_scale(30.0))
                 .with_screen_position((900.0, 20.0)),
+        );
+        self.brush.queue(
+            Section::default()
+                .add_text(Text::new(&self.target).with_scale(30.0))
+                .with_screen_position(self.center),
         );
         self.brush
             .process_queued(device, queue)

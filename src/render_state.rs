@@ -109,7 +109,14 @@ impl RenderState {
             playerz = rng.gen_range(2000.0..4000.0);
         }
 
-        let camera = Camera::new(glam::Vec3::new(playerx, 50.0, playerz), 0.0, 0.0);
+        let spawn_height = scene
+            .chunks()
+            .height_at(&glam::Vec3::new(playerx, 0.0, playerz));
+        let camera = Camera::new(
+            glam::Vec3::new(playerx, spawn_height + 5.0, playerz),
+            0.0,
+            0.0,
+        );
 
         let projection = Projection::new(
             config.width as f32 / config.height as f32,
@@ -297,8 +304,8 @@ impl RenderState {
         &mut self.camera
     }
 
-    pub fn scene(&mut self) -> &Scene {
-        &self.scene
+    pub fn update_physics(&mut self, dt: Duration) {
+        self.camera.update_physics(self.scene.chunks(), dt);
     }
 
     pub fn update(&mut self, dt: Duration) {

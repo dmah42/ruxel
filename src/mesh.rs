@@ -1,7 +1,7 @@
-use crate::chunks::Chunk;
 use crate::vertex::Vertex;
+use crate::{chunks::Chunk, terrain::MountainTerrain};
 use glam::Vec3;
-use noise::{Fbm, NoiseFn, Perlin};
+use noise::NoiseFn;
 
 #[derive(Debug)]
 pub struct ChunkMesh {
@@ -23,7 +23,7 @@ impl ChunkMesh {
         &self.transparent_indices
     }
 
-    pub fn build(chunk: &Chunk, terrain: &Fbm<Perlin>) -> Self {
+    pub fn build(chunk: &Chunk, terrain: &MountainTerrain) -> Self {
         let mut vertices = Vec::new();
         let mut opaque_indices = Vec::new();
         let mut transparent_indices = Vec::new();

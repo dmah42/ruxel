@@ -26,6 +26,10 @@ impl Block {
         !matches!(self.ty, Type::Inactive)
     }
 
+    pub fn is_solid(&self) -> bool {
+        !matches!(self.ty, Type::Inactive | Type::Water)
+    }
+
     pub fn color(&self) -> wgpu::Color {
         match self.ty {
             Type::Ice => wgpu::Color::WHITE,

@@ -9,9 +9,12 @@ use std::{
 };
 
 use glam::{IVec2, UVec2, Vec3};
-use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use noise::NoiseFn;
 
-use crate::block::{self, Block};
+use crate::{
+    block::{self, Block},
+    terrain::MountainTerrain,
+};
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -39,15 +42,12 @@ pub struct Chunks {
     loaded: Arc<Mutex<HashMap<UVec2, Vec<Chunk>>>>,
     // used to track which are in progress so we don't load things twice.
     loading: Arc<Mutex<HashSet<UVec2>>>,
-    // used by the scene to generate instances. cleared every update.
-    // TODO: figure out how to do this
-    //new_chunks: Arc<Mutex<HashSet<UVec2>>>,
     block_position: IVec2,
     chunk_position: IVec2,
     chunk_loader: Option<JoinHandle<()>>,
     loader_tx: Option<Sender<UVec2>>,
 
-    terrain: Fbm<Perlin>,
+    terrain: MountainTerrain,
 }
 
 impl Drop for Chunks {
@@ -66,11 +66,7 @@ impl Chunks {
         // TODO: shut these down correctly.
         let (loader_tx, loader_rx) = mpsc::channel();
 
-        let terrain = Fbm::<Perlin>::new(seed)
-            .set_frequency(1.0)
-            .set_persistence(0.5)
-            .set_lacunarity(2.208984375)
-            .set_octaves(14);
+        let terrain = MountainTerrain::new(seed);
         let terrain_clone = terrain.clone();
 
         // Create a thread that will load chunks when requested.
@@ -96,13 +92,9 @@ impl Chunks {
             })
             .expect("unable to create chunk loader thread");
 
-        //let new_chunks = Arc::new(Mutex::new(HashSet::new()));
-        //let new_chunks_clone = new_chunks.clone();
-
         Self {
             loaded,
             loading,
-            //new_chunks,
             block_position: IVec2::ZERO,
             chunk_position: IVec2::ZERO,
             chunk_loader: Some(chunk_loader),
@@ -123,12 +115,6 @@ impl Chunks {
     pub fn loaded(&self) -> Arc<Mutex<HashMap<UVec2, Vec<Chunk>>>> {
         Arc::clone(&self.loaded)
     }
-
-    /*
-    pub fn new_chunks(&self) -> Arc<Mutex<HashSet<UVec2>>> {
-        self.new_chunks.clone()
-    }
-    */
 
     // returns true if new chunks were loaded or old ones were unloaded.
     pub fn update(&mut self, player_position: &Vec3) {
@@ -183,9 +169,44 @@ impl Chunks {
         let point: [f64; 2] = [position.x as f64 / 384.0, position.z as f64 / 384.0];
         ((self.terrain.get(point) + 1.0) * 32.0) as f32
     }
+
+    pub fn is_solid_at(&self, x: i32, y: i32, z: i32) -> bool {
+        if x < 0 || y < 0 || z < 0 || y >= 128 {
+            return false;
+        }
+        let chunk_x = (x as u32) / 16;
+        let chunk_z = (z as u32) / 16;
+        let chunk_y = (y as usize) / 16;
+
+        let lx = (x as usize) % 16;
+        let ly = (y as usize) % 16;
+        let lz = (z as usize) % 16;
+
+        let key = UVec2::new(chunk_x, chunk_z);
+        if let Ok(loaded) = self.loaded.lock() {
+            if let Some(col) = loaded.get(&key) {
+                if chunk_y < col.len() {
+                    return col[chunk_y].blocks()[lx][ly][lz].is_solid();
+                }
+                return false;
+            }
+        }
+
+        false
+    }
+
+    pub fn is_chunk_loaded(&self, x: i32, z: i32) -> bool {
+        let chunk_x = (x as u32) / 16;
+        let chunk_z = (z as u32) / 16;
+        let key = UVec2::new(chunk_x, chunk_z);
+        if let Ok(loaded) = self.loaded.lock() {
+            return loaded.contains_key(&key);
+        }
+        false
+    }
 }
 
-fn load_chunks(terrain: &Fbm<Perlin>, key: UVec2) -> Vec<Chunk> {
+fn load_chunks(terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
     println!("loading chunk {key}");
     let mut chunks = Vec::new();
     for chunky in 0..8 {

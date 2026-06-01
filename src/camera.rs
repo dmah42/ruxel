@@ -29,7 +29,8 @@ impl Uniform {
 
     pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection) {
         self.view_proj = *(projection.matrix() * camera.matrix()).as_ref();
-        self.view_pos = [camera.position.x, camera.position.y, camera.position.z, 1.0];
+        let visual_pos = camera.visual_position();
+        self.view_pos = [visual_pos.x, visual_pos.y, visual_pos.z, 1.0];
     }
 }
 
@@ -65,7 +66,8 @@ pub struct Camera {
     position: Vec3,
     yaw: f32,
     pitch: f32,
-    velocity_y: f32,
+    velocity: Vec3,
+    step_offset: f32,
 }
 
 impl Camera {
@@ -74,7 +76,8 @@ impl Camera {
             position,
             yaw,
             pitch,
-            velocity_y: 0.0,
+            velocity: Vec3::ZERO,
+            step_offset: 0.0,
         }
     }
 
@@ -82,31 +85,126 @@ impl Camera {
         self.position
     }
 
+    pub fn visual_position(&self) -> Vec3 {
+        let mut p = self.position;
+        p.y += self.step_offset;
+        p
+    }
+
     fn matrix(&self) -> Mat4 {
         let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
 
         Mat4::look_to_rh(
-            self.position,
+            self.visual_position(),
             Vec3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
             Vec3::Y,
         )
     }
 
-    pub fn update_physics(&mut self, height: f32, dt: Duration) {
+    pub fn update_physics(&mut self, chunks: &crate::chunks::Chunks, dt: Duration) {
+        if !chunks.is_chunk_loaded(self.position.x as i32, self.position.z as i32) {
+            self.velocity = Vec3::ZERO;
+            return;
+        }
+
         let dt = dt.as_secs_f32();
-        let height = height + PLAYER_HEIGHT;
 
-        // apply gravity and velocity
-        self.velocity_y -= GRAVITY * dt;
-        self.position.y += self.velocity_y * dt;
+        // Smoothly decay step offset
+        if self.step_offset.abs() > 0.001 {
+            self.step_offset *= f32::exp(-15.0 * dt);
+        } else {
+            self.step_offset = 0.0;
+        }
 
-        // collision with ground
-        if self.position.y < height {
-            self.position.y = height;
-            self.velocity_y = 0.0;
+        let radius = 0.3;
+        let height_below = PLAYER_HEIGHT;
+        let height_above = 0.2;
+
+        // apply gravity
+        self.velocity.y -= GRAVITY * dt;
+
+        let d = self.velocity * dt;
+
+        // Y axis
+        self.position.y += d.y;
+        if check_collision(self.position, radius, height_below, height_above, chunks) {
+            if d.y < 0.0 {
+                self.position.y = (self.position.y - height_below).floor() + 1.001 + height_below;
+            } else if d.y > 0.0 {
+                self.position.y = (self.position.y + height_above).floor() - 0.001 - height_above;
+            }
+            self.velocity.y = 0.0;
+        }
+
+        // X axis
+        self.position.x += d.x;
+        if check_collision(self.position, radius, height_below, height_above, chunks) {
+            let mut stepped = false;
+            let mut test_pos = self.position;
+            for _ in 1..=10 {
+                test_pos.y += 0.1;
+                if !check_collision(test_pos, radius, height_below, height_above, chunks) {
+                    let diff = test_pos.y - self.position.y;
+                    self.position = test_pos;
+                    self.step_offset -= diff;
+                    stepped = true;
+                    break;
+                }
+            }
+            if !stepped {
+                self.position.x -= d.x;
+                self.velocity.x = 0.0;
+            }
+        }
+
+        // Z axis
+        self.position.z += d.z;
+        if check_collision(self.position, radius, height_below, height_above, chunks) {
+            let mut stepped = false;
+            let mut test_pos = self.position;
+            for _ in 1..=10 {
+                test_pos.y += 0.1;
+                if !check_collision(test_pos, radius, height_below, height_above, chunks) {
+                    let diff = test_pos.y - self.position.y;
+                    self.position = test_pos;
+                    self.step_offset -= diff;
+                    stepped = true;
+                    break;
+                }
+            }
+            if !stepped {
+                self.position.z -= d.z;
+                self.velocity.z = 0.0;
+            }
         }
     }
+}
+
+fn check_collision(
+    pos: Vec3,
+    radius: f32,
+    h_below: f32,
+    h_above: f32,
+    chunks: &crate::chunks::Chunks,
+) -> bool {
+    let min_x = (pos.x - radius).floor() as i32;
+    let max_x = (pos.x + radius).floor() as i32;
+    let min_y = (pos.y - h_below).floor() as i32;
+    let max_y = (pos.y + h_above).floor() as i32;
+    let min_z = (pos.z - radius).floor() as i32;
+    let max_z = (pos.z + radius).floor() as i32;
+
+    for x in min_x..=max_x {
+        for y in min_y..=max_y {
+            for z in min_z..=max_z {
+                if chunks.is_solid_at(x, y, z) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 pub struct Controller {
@@ -221,8 +319,10 @@ impl Controller {
         let forward = Vec3::new(yaw_cos, 0.0, yaw_sin).normalize();
         let right = Vec3::new(-yaw_sin, 0.0, yaw_cos).normalize();
 
-        camera.position += forward * (self.amount_forward - self.amount_backward) * self.speed * dt;
-        camera.position += right * (self.amount_right - self.amount_left) * self.speed * dt;
+        let move_dir = forward * (self.amount_forward - self.amount_backward)
+            + right * (self.amount_right - self.amount_left);
+        camera.velocity.x = move_dir.x * self.speed;
+        camera.velocity.z = move_dir.z * self.speed;
 
         // zoom
         let (pitch_sin, pitch_cos) = camera.pitch.sin_cos();
@@ -232,12 +332,12 @@ impl Controller {
 
         // up and down
         if self.amount_up > 0.0 {
-            camera.velocity_y = self.amount_up;
+            camera.velocity.y = self.amount_up;
             self.amount_up = 0.0;
         }
         camera.position.y -= self.amount_down * self.speed * dt;
 
-        if camera.velocity_y == 0.0 {
+        if camera.velocity.y == 0.0 {
             self.is_jumping = false;
         }
 

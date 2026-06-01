@@ -6,6 +6,7 @@ mod mesh;
 mod render_state;
 mod scene;
 mod sky;
+mod terrain;
 mod texture;
 mod ui;
 mod vertex;
@@ -113,9 +114,7 @@ impl Ruxel {
             .update_camera(self.state.camera(), dt);
         {
             // update player physics
-            let camera_position = self.state.camera().position();
-            let height = self.state.scene().chunks().height_at(&camera_position);
-            self.state.camera().update_physics(height, dt);
+            self.state.update_physics(dt);
         }
         self.state.update(dt);
     }
@@ -135,7 +134,10 @@ impl Ruxel {
             match event {
                 Event::RedrawRequested(window_id) if window_id == self.window.id() => {
                     let now = Instant::now();
-                    let dt = now - last_render_time;
+                    let mut dt = now - last_render_time;
+                    if dt > Duration::from_millis(100) {
+                        dt = Duration::from_millis(100);
+                    }
                     last_render_time = now;
                     self.update(dt);
                     match self.state.render() {
