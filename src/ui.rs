@@ -1,10 +1,9 @@
 use std::time::Duration;
 
 use glam::{IVec2, Vec2, Vec3};
-use wgpu::{CommandBuffer, Device, Queue, SurfaceConfiguration, TextureView};
+use wgpu::{Device, Queue, SurfaceConfiguration};
 use wgpu_text::{
-    font::FontArc,
-    section::{Section, Text},
+    glyph_brush::{ab_glyph::FontArc, Section, Text},
     BrushBuilder, TextBrush,
 };
 
@@ -25,7 +24,12 @@ impl Ui {
     pub fn new(device: &Device, config: &SurfaceConfiguration) -> Self {
         let font_data = include_bytes!("../fonts/Stacked pixel.ttf").to_vec();
         let font = FontArc::try_from_vec(font_data).expect("unable to load font");
-        let brush = BrushBuilder::using_font(font).build(device, config);
+        let brush = BrushBuilder::using_font(font).build(
+            device,
+            config.width,
+            config.height,
+            config.format,
+        );
 
         Self {
             brush,
@@ -72,45 +76,42 @@ impl Ui {
             .resize_view(new_size.width as f32, new_size.height as f32, queue);
     }
 
-    pub fn render(&mut self, device: &Device, queue: &Queue, view: &TextureView) -> CommandBuffer {
-        self.brush.queue(
-            Section::default()
-                .add_text(Text::new(&self.player_position).with_scale(30.0))
-                .with_screen_position((20.0, 20.0)),
-        );
-        self.brush.queue(
-            Section::default()
-                .add_text(Text::new(&self.block_position).with_scale(30.0))
-                .with_screen_position((20.0, 55.0)),
-        );
-        self.brush.queue(
-            Section::default()
-                .add_text(Text::new(&self.chunk_position).with_scale(30.0))
-                .with_screen_position((20.0, 90.0)),
-        );
-        self.brush.queue(
-            Section::default()
-                .add_text(Text::new(&self.fps_str).with_scale(30.0))
-                .with_screen_position((900.0, 20.0)),
-        );
-        self.brush.queue(
-            Section::default()
-                .add_text(
-                    Text::new(&self.target)
-                        .with_scale(48.0)
-                        .with_color([0.0, 0.0, 0.0, 0.7]),
-                )
-                .with_screen_position(self.center),
-        );
-        // TODO: add UI for showing which block type is which number.
-        self.brush.queue(
-            Section::default()
-                .add_text(Text::new(&self.selected_block).with_scale(30.0))
-                .with_screen_position((20.0, 125.0)),
-        );
+    pub fn render<'pass>(
+        &'pass mut self,
+        device: &Device,
+        queue: &Queue,
+        rpass: &mut wgpu::RenderPass<'pass>,
+    ) {
         self.brush
-            .process_queued(device, queue)
-            .expect("failed to process queue");
-        self.brush.draw(device, view)
+            .queue(
+                device,
+                queue,
+                vec![
+                    Section::default()
+                        .add_text(Text::new(&self.player_position).with_scale(30.0))
+                        .with_screen_position((20.0, 20.0)),
+                    Section::default()
+                        .add_text(Text::new(&self.block_position).with_scale(30.0))
+                        .with_screen_position((20.0, 55.0)),
+                    Section::default()
+                        .add_text(Text::new(&self.chunk_position).with_scale(30.0))
+                        .with_screen_position((20.0, 90.0)),
+                    Section::default()
+                        .add_text(Text::new(&self.fps_str).with_scale(30.0))
+                        .with_screen_position((900.0, 20.0)),
+                    Section::default()
+                        .add_text(
+                            Text::new(&self.target)
+                                .with_scale(48.0)
+                                .with_color([0.0, 0.0, 0.0, 0.7]),
+                        )
+                        .with_screen_position(self.center),
+                    Section::default()
+                        .add_text(Text::new(&self.selected_block).with_scale(30.0))
+                        .with_screen_position((20.0, 125.0)),
+                ],
+            )
+            .expect("failed to process UI queue");
+        self.brush.draw(rpass)
     }
 }

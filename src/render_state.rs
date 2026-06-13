@@ -9,12 +9,13 @@ use crate::{
     vertex::{SimpleVertex, Vertex},
 };
 use rand::Rng;
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
-pub struct RenderState {
+pub struct RenderState<'window> {
     pub size: winit::dpi::PhysicalSize<u32>,
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'window>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -37,16 +38,18 @@ pub struct RenderState {
     light_bind_group: wgpu::BindGroup,
 }
 
-impl RenderState {
-    pub async fn new(seed: u32, window: &Window) -> RenderState {
+impl RenderState<'static> {
+    pub async fn new(seed: u32, window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            dx12_shader_compiler: Default::default(),
+            ..Default::default()
         });
 
-        let surface = unsafe { instance.create_surface(window) }.expect("failed to create surface");
+        let surface = instance
+            .create_surface(window)
+            .expect("failed to create surface");
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -60,8 +63,8 @@ impl RenderState {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::empty(),
-                    limits: if cfg!(target_arch = "wasm32") {
+                    required_features: wgpu::Features::empty(),
+                    required_limits: if cfg!(target_arch = "wasm32") {
                         wgpu::Limits::downlevel_webgl2_defaults()
                     } else {
                         wgpu::Limits::default()
@@ -88,6 +91,7 @@ impl RenderState {
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
 
@@ -208,9 +212,9 @@ impl RenderState {
             create_render_pipeline(
                 &device,
                 &layout,
-                config.format,
+                &config,
                 Some(Texture::DEPTH_FORMAT),
-                &[Vertex::desc()],
+                Vertex::desc(),
                 wgpu::include_wgsl!("shader.wgsl"),
                 true,
                 wgpu::BlendState::REPLACE,
@@ -228,9 +232,9 @@ impl RenderState {
             create_render_pipeline(
                 &device,
                 &layout,
-                config.format,
+                &config,
                 Some(Texture::DEPTH_FORMAT),
-                &[Vertex::desc()],
+                Vertex::desc(),
                 wgpu::include_wgsl!("shader.wgsl"),
                 false, // depth_write_enabled
                 wgpu::BlendState::ALPHA_BLENDING,
@@ -248,9 +252,9 @@ impl RenderState {
             create_render_pipeline(
                 &device,
                 &layout,
-                config.format,
+                &config,
                 Some(Texture::DEPTH_FORMAT),
-                &[SimpleVertex::desc()],
+                SimpleVertex::desc(),
                 wgpu::include_wgsl!("sun.wgsl"),
                 true,
                 wgpu::BlendState::REPLACE,
@@ -268,9 +272,9 @@ impl RenderState {
             create_render_pipeline(
                 &device,
                 &layout,
-                config.format,
+                &config,
                 Some(Texture::DEPTH_FORMAT),
-                &[SimpleVertex::desc()],
+                SimpleVertex::desc(),
                 wgpu::include_wgsl!("moon.wgsl"),
                 true,
                 wgpu::BlendState::ALPHA_BLENDING,
@@ -378,6 +382,7 @@ impl RenderState {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("command encoder"),
             });
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render pass"),
@@ -386,17 +391,19 @@ impl RenderState {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(self.scene.sky().color()),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_texture.view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
                 }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
 
             // draw sun
@@ -460,8 +467,26 @@ impl RenderState {
                 }
             }
         }
-        let ui_buffer = self.ui.render(&self.device, &self.queue, &view);
-        self.queue.submit([encoder.finish(), ui_buffer]); // std::iter::once(encoder.finish()));
+
+        {
+            let mut ui_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ui render pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            self.ui.render(&self.device, &self.queue, &mut ui_pass);
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
@@ -471,9 +496,9 @@ impl RenderState {
 fn create_render_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
-    color_format: wgpu::TextureFormat,
+    config: &wgpu::SurfaceConfiguration,
     depth_format: Option<wgpu::TextureFormat>,
-    vertex_layouts: &[wgpu::VertexBufferLayout],
+    vertex_buffer_layout: wgpu::VertexBufferLayout,
     shader: wgpu::ShaderModuleDescriptor,
     depth_write_enabled: bool,
     blend_state: wgpu::BlendState,
@@ -487,7 +512,8 @@ fn create_render_pipeline(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",
-            buffers: vertex_layouts,
+            buffers: &[vertex_buffer_layout],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
@@ -514,10 +540,11 @@ fn create_render_pipeline(
             module: &shader,
             entry_point: "fs_main",
             targets: &[Some(wgpu::ColorTargetState {
-                format: color_format,
+                format: config.format,
                 blend: Some(blend_state),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
         }),
         multiview: None,
     })

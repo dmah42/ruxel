@@ -4,7 +4,8 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use winit::{
     dpi::PhysicalPosition,
-    event::{ElementState, MouseScrollDelta, VirtualKeyCode},
+    event::{ElementState, MouseScrollDelta},
+    keyboard::KeyCode,
 };
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.001;
@@ -340,7 +341,7 @@ impl Controller {
         &mut self,
         state: ElementState,
         _scancode: u32,
-        keycode: VirtualKeyCode,
+        keycode: KeyCode,
     ) -> bool {
         let amount = if state == ElementState::Pressed {
             1.0
@@ -350,26 +351,26 @@ impl Controller {
 
         match keycode {
             //13 | 126 => {
-            VirtualKeyCode::W | VirtualKeyCode::Up => {
+            KeyCode::KeyW | KeyCode::ArrowUp => {
                 self.amount_forward = amount;
                 true
             }
             //0 | 123 => {
-            VirtualKeyCode::A | VirtualKeyCode::Left => {
+            KeyCode::KeyA | KeyCode::ArrowLeft => {
                 self.amount_left = amount;
                 true
             }
             //1 | 125 => {
-            VirtualKeyCode::S | VirtualKeyCode::Down => {
+            KeyCode::KeyS | KeyCode::ArrowDown => {
                 self.amount_backward = amount;
                 true
             }
             //2 | 124 => {
-            VirtualKeyCode::D | VirtualKeyCode::Right => {
+            KeyCode::KeyD | KeyCode::ArrowRight => {
                 self.amount_right = amount;
                 true
             }
-            VirtualKeyCode::Space => {
+            KeyCode::Space => {
                 if !self.is_jumping && state == ElementState::Pressed {
                     self.amount_up = JUMP_VELOCITY;
                     self.is_jumping = true;

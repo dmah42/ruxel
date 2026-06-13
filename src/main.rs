@@ -7,6 +7,8 @@ async fn main() {
     let seed = rng.gen::<u32>();
     println!("using seed {seed:X}");
 
-    let ruxel = Ruxel::new(seed).await;
-    pollster::block_on(ruxel.run());
+    match Ruxel::new(seed).await {
+        Ok(ruxel) => pollster::block_on(ruxel.run()),
+        Err(e) => eprintln!("Fatal error: failed to initialize application: {}", e),
+    }
 }
