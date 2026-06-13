@@ -33,7 +33,7 @@ impl Ui {
             block_position: String::from(""),
             chunk_position: String::from(""),
             target: String::from("+"),
-            center: Vec2::new(0.0, 0.0),
+            center: Vec2::new(config.width as f32 / 2.0, config.height as f32 / 2.0),
             fps: 0,
             total_time: Duration::new(0, 0),
             fps_str: String::from("FPS: 0"),

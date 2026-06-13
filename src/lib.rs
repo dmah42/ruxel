@@ -73,7 +73,7 @@ impl Ruxel {
 
         let state = RenderState::new(seed, &window).await;
 
-        let mut ruxel = Self {
+        Self {
             event_loop: Some(event_loop),
             window,
             state,
@@ -81,8 +81,7 @@ impl Ruxel {
             mouse_pressed: false,
             mouse_grabbed: false,
             selected_block_type: block::Type::Grass,
-        };
-        ruxel
+        }
     }
 
     fn grab_mouse(&mut self) {
