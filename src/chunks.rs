@@ -322,7 +322,7 @@ fn load_chunks(terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
                 }
             }
         }
-        chunk.mesh = Some(crate::mesh::ChunkMesh::build(&chunk, terrain));
+        chunk.mesh = Some(crate::mesh::ChunkMesh::build(&chunk, &std::collections::HashMap::new(), terrain));
         chunks.push(chunk);
     }
     chunks

@@ -23,7 +23,11 @@ impl ChunkMesh {
         &self.transparent_indices
     }
 
-    pub fn build(chunk: &Chunk, terrain: &MountainTerrain) -> Self {
+    pub fn build(
+        chunk: &Chunk,
+        loaded_chunks: &std::collections::HashMap<glam::UVec2, Vec<Chunk>>,
+        terrain: &MountainTerrain,
+    ) -> Self {
         let mut vertices = Vec::new();
         let mut opaque_indices = Vec::new();
         let mut transparent_indices = Vec::new();
@@ -40,6 +44,21 @@ impl ChunkMesh {
                 let n = &blocks[cx as usize][cy as usize][cz as usize];
                 n.is_active() && n.color().a == 1.0
             } else {
+                let chunk_x = (wx as f32 / 16.0).floor() as i32;
+                let chunk_z = (wz as f32 / 16.0).floor() as i32;
+                let cy_index = (wy as f32 / 16.0).floor() as i32;
+                
+                if chunk_x >= 0 && chunk_z >= 0 && cy_index >= 0 && cy_index < 8 {
+                    let neighbor_key = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
+                    if let Some(col) = loaded_chunks.get(&neighbor_key) {
+                        let lx = wx.rem_euclid(16) as usize;
+                        let ly = wy.rem_euclid(16) as usize;
+                        let lz = wz.rem_euclid(16) as usize;
+                        let n = &col[cy_index as usize].blocks()[lx][ly][lz];
+                        return n.is_active() && n.color().a == 1.0;
+                    }
+                }
+
                 let point: [f64; 2] = [wx as f64 / 384.0, wz as f64 / 384.0];
                 let height = ((terrain.get(point) + 1.0) * 32.0) as i32;
                 wy < height
@@ -55,6 +74,21 @@ impl ChunkMesh {
                 let n = &blocks[cx as usize][cy as usize][cz as usize];
                 n.is_active() && n.color().a < 1.0
             } else {
+                let chunk_x = (wx as f32 / 16.0).floor() as i32;
+                let chunk_z = (wz as f32 / 16.0).floor() as i32;
+                let cy_index = (wy as f32 / 16.0).floor() as i32;
+                
+                if chunk_x >= 0 && chunk_z >= 0 && cy_index >= 0 && cy_index < 8 {
+                    let neighbor_key = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
+                    if let Some(col) = loaded_chunks.get(&neighbor_key) {
+                        let lx = wx.rem_euclid(16) as usize;
+                        let ly = wy.rem_euclid(16) as usize;
+                        let lz = wz.rem_euclid(16) as usize;
+                        let n = &col[cy_index as usize].blocks()[lx][ly][lz];
+                        return n.is_active() && n.color().a < 1.0;
+                    }
+                }
+
                 let point: [f64; 2] = [wx as f64 / 384.0, wz as f64 / 384.0];
                 let height = ((terrain.get(point) + 1.0) * 32.0) as i32;
                 wy < 32 && wy >= height

@@ -181,6 +181,32 @@ impl Scene {
 
         let terrain = self.chunks.terrain().clone();
 
+        // 1. Find all dirty chunks
+        let mut dirty_chunks = Vec::new();
+        for (key, chunks) in locked_loaded.iter() {
+            for (i, chunk) in chunks.iter().enumerate() {
+                if chunk.dirty() {
+                    dirty_chunks.push((*key, i));
+                }
+            }
+        }
+
+        // 2. Build meshes with read-only access to all chunks
+        let mut new_meshes = Vec::new();
+        for (key, i) in dirty_chunks {
+            let chunk = &locked_loaded.get(&key).unwrap()[i];
+            let mesh = crate::mesh::ChunkMesh::build(chunk, &locked_loaded, &terrain);
+            new_meshes.push((key, i, mesh));
+        }
+
+        // 3. Apply the built meshes and mark clean
+        for (key, i, mesh) in new_meshes {
+            let chunk = &mut locked_loaded.get_mut(&key).unwrap()[i];
+            chunk.set_mesh(mesh);
+            chunk.clean();
+        }
+
+        // 4. Update GPU buffers
         for (key, chunks) in locked_loaded.iter_mut() {
             let col_buffers = self
                 .chunk_buffers
@@ -188,11 +214,6 @@ impl Scene {
                 .or_insert_with(|| (0..chunks.len()).map(|_| None).collect());
 
             for (i, chunk) in chunks.iter_mut().enumerate() {
-                if chunk.dirty() {
-                    chunk.set_mesh(crate::mesh::ChunkMesh::build(chunk, &terrain));
-                    chunk.clean();
-                }
-
                 if let Some(mesh) = chunk.take_mesh() {
                     let opaque_indices = mesh.opaque_indices();
                     let transparent_indices = mesh.transparent_indices();
@@ -210,27 +231,23 @@ impl Scene {
                         });
 
                     let opaque_index_buffer = if !opaque_indices.is_empty() {
-                        Some((
-                            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("chunk opaque index buffer"),
-                                contents: bytemuck::cast_slice(opaque_indices),
-                                usage: wgpu::BufferUsages::INDEX,
-                            }),
-                            opaque_indices.len() as u32,
-                        ))
+                        let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("chunk opaque index buffer"),
+                            contents: bytemuck::cast_slice(opaque_indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
+                        Some((buf, opaque_indices.len() as u32))
                     } else {
                         None
                     };
 
                     let transparent_index_buffer = if !transparent_indices.is_empty() {
-                        Some((
-                            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("chunk transparent index buffer"),
-                                contents: bytemuck::cast_slice(transparent_indices),
-                                usage: wgpu::BufferUsages::INDEX,
-                            }),
-                            transparent_indices.len() as u32,
-                        ))
+                        let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("chunk transparent index buffer"),
+                            contents: bytemuck::cast_slice(transparent_indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
+                        Some((buf, transparent_indices.len() as u32))
                     } else {
                         None
                     };
