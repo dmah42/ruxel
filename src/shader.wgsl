@@ -112,11 +112,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
   var result = total_light * base_color * in.ao;
 
+  // Distance fog to blend chunks smoothly into the sky (using squared distance
+  // to avoid slow sqrt)
+  let d = camera.view_pos.xyz - in.world_position;
+  let dist_sq = dot(d, d);
+  // NOTE: The value 48.0 corresponds to CHUNK_LOAD_RADIUS * 16.
+  let distance_fog_factor = smoothstep(40.0 * 40.0, 48.0 * 48.0, dist_sq);
+  result = mix(result, sky, distance_fog_factor);
+
   // Underwater fog
   if (camera.view_pos.y < 32.0) {
       let fog_color = vec3<f32>(0.0, 0.2, 0.6);
-      let dist = distance(camera.view_pos.xyz, in.world_position);
-      let fog_factor = 1.0 - exp(-dist * 0.05);
+      let fog_factor = 1.0 - exp(-sqrt(dist_sq) * 0.05);
       result = mix(result, fog_color, fog_factor);
   }
 

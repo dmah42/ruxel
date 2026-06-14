@@ -6,19 +6,22 @@ it's written in rust.
 ## TODO
 * player object instead of moving the camera
     * hacked to make it look like a player.
-* collision
-    * basics are in place but the player can climb too easily maybe
-* better landscape generation
-    * Fbm<Perlin> is working well and is fast.
-* chunks: basics are in place but i need to:
-    * _optimisation_: make a chunk an instance rather than each block to reduce render calls
 * save/load world to disk
 * more block types
 * specular lighting
     * maybe just for some block types
 * shadow mapping
-* transparent blocks
-    * basics are there, but all the water should be a separate render pass to work between chunks.
-* textures?
 * creatures
 * dynamic world?
+
+## Future Work
+
+* **Frustum Culling & View Distance**: Check if a chunk's bounding box is within
+  the camera's view before drawing it to increase render distance without
+  sacrificing performance.
+* **Targeted Block Highlight**: Add visual feedback (like a wireframe cube) to
+  the targeted block from the DDA raycaster.
+* **Trees & Flora (Decorators)**: Add a decorator pass during chunk generation
+  to place structures like trees or tall grass.
+* **3D Noise / Caves**: Introduce 3D noise to carve out cave networks below the
+  surface.

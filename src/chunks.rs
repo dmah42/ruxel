@@ -16,6 +16,8 @@ use crate::{
     terrain::MountainTerrain,
 };
 
+pub const CHUNK_LOAD_RADIUS: i32 = 3;
+
 #[derive(Debug)]
 pub struct Chunk {
     blocks: [[[Block; 16]; 16]; 16],
@@ -139,12 +141,12 @@ impl Chunks {
         self.chunk_position = IVec2::new(self.block_position.x / 16, self.block_position.y / 16);
 
         let start_chunk_position = UVec2::new(
-            max(0, self.chunk_position.x - 3) as u32,
-            max(0, self.chunk_position.y - 3) as u32,
+            max(0, self.chunk_position.x - CHUNK_LOAD_RADIUS) as u32,
+            max(0, self.chunk_position.y - CHUNK_LOAD_RADIUS) as u32,
         );
         let end_chunk_position = UVec2::new(
-            max(0, self.chunk_position.x + 3) as u32,
-            max(0, self.chunk_position.y + 3) as u32,
+            max(0, self.chunk_position.x + CHUNK_LOAD_RADIUS) as u32,
+            max(0, self.chunk_position.y + CHUNK_LOAD_RADIUS) as u32,
         );
 
         // clean up any out of range chunks
