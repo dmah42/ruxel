@@ -16,7 +16,7 @@ use crate::{
     terrain::MountainTerrain,
 };
 
-pub const CHUNK_LOAD_RADIUS: i32 = 3;
+pub const CHUNK_LOAD_RADIUS: i32 = 4;
 
 #[derive(Debug)]
 pub struct Chunk {
