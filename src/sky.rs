@@ -7,7 +7,7 @@ use wgpu::util::DeviceExt;
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct RawSky {
-    color: [f32; 3],
+    color: [f32; 4],
 }
 
 pub struct Sky {
@@ -21,8 +21,8 @@ impl Sky {
         let color = wgpu::Color::BLACK;
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("sky buffer"),
-            contents: bytemuck::cast_slice(&[[color.r, color.g, color.b]]),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            contents: bytemuck::cast_slice(&[[color.r as f32, color.g as f32, color.b as f32, 1.0]]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         Self { color, buffer }
     }
@@ -35,11 +35,12 @@ impl Sky {
         &self.buffer
     }
 
-    pub fn to_raw(&self) -> [f32; 3] {
+    pub fn to_raw(&self) -> [f32; 4] {
         [
             self.color.r as f32,
             self.color.g as f32,
             self.color.b as f32,
+            1.0,
         ]
     }
 

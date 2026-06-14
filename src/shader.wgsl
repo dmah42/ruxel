@@ -12,7 +12,7 @@ struct LightUniform {
 struct LightUniforms {
   lights: array<LightUniform, 2>,
 }
-@group(1) @binding(0) var<storage, read> sky: vec3<f32>;
+@group(1) @binding(0) var<uniform> sky: vec4<f32>;
 @group(1) @binding(1) var<uniform> lights: LightUniforms;
 
 struct VertexInput {
@@ -95,7 +95,7 @@ fn get_texture_noise(pos: vec3<f32>, color: vec4<f32>) -> f32 {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let ambient_strength = 0.1;
-  let ambient_color = sky * ambient_strength;
+  let ambient_color = sky.xyz * ambient_strength;
 
   var total_light = ambient_color;
 
@@ -118,7 +118,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let dist_sq = dot(d, d);
   // NOTE: The value 48.0 corresponds to CHUNK_LOAD_RADIUS * 16.
   let distance_fog_factor = smoothstep(40.0 * 40.0, 48.0 * 48.0, dist_sq);
-  result = mix(result, sky, distance_fog_factor);
+  result = mix(result, sky.xyz, distance_fog_factor);
 
   // Underwater fog
   if (camera.view_pos.y < 32.0) {
