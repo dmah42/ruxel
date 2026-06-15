@@ -13,6 +13,8 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
+const REACH_DISTANCE: f32 = 6.0;
+
 pub struct RenderState<'window> {
     pub size: winit::dpi::PhysicalSize<u32>,
     surface: wgpu::Surface<'window>,
@@ -23,6 +25,8 @@ pub struct RenderState<'window> {
     transparent_pipeline: wgpu::RenderPipeline,
     sun_render_pipeline: wgpu::RenderPipeline,
     moon_render_pipeline: wgpu::RenderPipeline,
+    wireframe_pipeline: wgpu::RenderPipeline,
+    selected_block: Option<glam::IVec3>,
 
     ui: Ui,
     scene: Scene,
@@ -36,6 +40,7 @@ pub struct RenderState<'window> {
     camera_bind_group: wgpu::BindGroup,
 
     light_bind_group: wgpu::BindGroup,
+    wireframe_bind_group: wgpu::BindGroup,
 }
 
 impl RenderState<'static> {
@@ -202,6 +207,30 @@ impl RenderState<'static> {
             label: Some("light bind group"),
         });
 
+        let wireframe_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("wireframe bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let wireframe_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("wireframe bind group"),
+            layout: &wireframe_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: scene.wireframe_uniform_buffer().as_entire_binding(),
+            }],
+        });
+
         let render_pipeline = {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("render pipeline layout"),
@@ -247,6 +276,18 @@ impl RenderState<'static> {
                 .build(&device, &config, Some(Texture::DEPTH_FORMAT))
         };
 
+        let wireframe_pipeline = {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("wireframe pipeline layout"),
+                bind_group_layouts: &[&camera_bind_group_layout, &wireframe_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            PipelineConfig::opaque(&layout, SimpleVertex::desc(), wgpu::include_wgsl!("wireframe.wgsl"))
+                .with_topology(wgpu::PrimitiveTopology::LineList)
+                .build(&device, &config, Some(Texture::DEPTH_FORMAT))
+        };
+
         Self {
             size,
             surface,
@@ -257,6 +298,8 @@ impl RenderState<'static> {
             transparent_pipeline,
             sun_render_pipeline,
             moon_render_pipeline,
+            wireframe_pipeline,
+            selected_block: None,
             ui,
             scene,
             depth_texture,
@@ -266,6 +309,7 @@ impl RenderState<'static> {
             camera_buffer,
             camera_bind_group,
             light_bind_group,
+            wireframe_bind_group,
         }
     }
 
@@ -278,7 +322,7 @@ impl RenderState<'static> {
     }
 
     pub fn interact(&mut self, place: bool, block_type: crate::block::Type) {
-        if let Some((hit_pos, normal)) = self.camera.raycast(self.scene.chunks(), 6.0) {
+        if let Some((hit_pos, normal)) = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE) {
             if place {
                 let p = hit_pos + normal;
                 self.scene.chunks().set_block(p.x, p.y, p.z, block_type);
@@ -302,6 +346,12 @@ impl RenderState<'static> {
             dt,
         );
         self.scene.update(dt, &self.camera.position(), &self.device);
+
+        self.selected_block = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE).map(|(pos, _)| pos);
+        if let Some(pos) = self.selected_block {
+            let offset = [pos.x as f32, pos.y as f32, pos.z as f32, 0.0f32];
+            self.queue.write_buffer(self.scene.wireframe_uniform_buffer(), 0, bytemuck::cast_slice(&[offset]));
+        }
 
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
@@ -431,6 +481,16 @@ impl RenderState<'static> {
                     }
                 }
             }
+
+            // draw wireframe
+            if self.selected_block.is_some() {
+                render_pass.set_pipeline(&self.wireframe_pipeline);
+                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.wireframe_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.scene.vertex_buffer().slice(..));
+                render_pass.set_index_buffer(self.scene.wireframe_index_buffer().slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..24, 0, 0..1);
+            }
         }
 
         {
@@ -465,6 +525,7 @@ struct PipelineConfig<'a> {
     depth_write_enabled: bool,
     blend_state: wgpu::BlendState,
     cull_mode: Option<wgpu::Face>,
+    topology: wgpu::PrimitiveTopology,
 }
 
 impl<'a> PipelineConfig<'a> {
@@ -480,6 +541,7 @@ impl<'a> PipelineConfig<'a> {
             depth_write_enabled: true,
             blend_state: wgpu::BlendState::REPLACE,
             cull_mode: Some(wgpu::Face::Back),
+            topology: wgpu::PrimitiveTopology::TriangleList,
         }
     }
 
@@ -495,11 +557,17 @@ impl<'a> PipelineConfig<'a> {
             depth_write_enabled: false,
             blend_state: wgpu::BlendState::ALPHA_BLENDING,
             cull_mode: None,
+            topology: wgpu::PrimitiveTopology::TriangleList,
         }
     }
 
     fn with_blend_state(mut self, blend_state: wgpu::BlendState) -> Self {
         self.blend_state = blend_state;
+        self
+    }
+
+    fn with_topology(mut self, topology: wgpu::PrimitiveTopology) -> Self {
+        self.topology = topology;
         self
     }
 
@@ -521,7 +589,7 @@ impl<'a> PipelineConfig<'a> {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
+                topology: self.topology,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: self.cull_mode,

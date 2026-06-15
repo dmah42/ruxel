@@ -42,6 +42,8 @@ pub struct Scene {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
+    wireframe_index_buffer: wgpu::Buffer,
+    wireframe_uniform_buffer: wgpu::Buffer,
 
     chunks: Chunks,
     chunk_buffers: std::collections::HashMap<glam::UVec2, Vec<Option<ChunkBuffers>>>,
@@ -69,6 +71,18 @@ impl Scene {
             usage: wgpu::BufferUsages::INDEX,
         });
         let num_indices = CUBE_INDICES.len() as u32;
+
+        let wireframe_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("wireframe index buffer"),
+            contents: bytemuck::cast_slice(crate::vertex::WIREFRAME_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let wireframe_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("wireframe uniform buffer"),
+            contents: bytemuck::cast_slice(&[[0.0f32; 4]]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
         let chunks = Chunks::new(seed);
 
@@ -109,6 +123,8 @@ impl Scene {
             vertex_buffer,
             index_buffer,
             num_indices,
+            wireframe_index_buffer,
+            wireframe_uniform_buffer,
 
             chunk_buffers,
 
@@ -137,6 +153,14 @@ impl Scene {
 
     pub fn num_indices(&self) -> u32 {
         self.num_indices
+    }
+
+    pub fn wireframe_index_buffer(&self) -> &wgpu::Buffer {
+        &self.wireframe_index_buffer
+    }
+
+    pub fn wireframe_uniform_buffer(&self) -> &wgpu::Buffer {
+        &self.wireframe_uniform_buffer
     }
 
     pub fn chunk_buffers(
