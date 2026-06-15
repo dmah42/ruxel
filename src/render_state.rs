@@ -209,17 +209,8 @@ impl RenderState<'static> {
                 push_constant_ranges: &[],
             });
 
-            create_render_pipeline(
-                &device,
-                &layout,
-                &config,
-                Some(Texture::DEPTH_FORMAT),
-                Vertex::desc(),
-                wgpu::include_wgsl!("shader.wgsl"),
-                true,
-                wgpu::BlendState::REPLACE,
-                Some(wgpu::Face::Back),
-            )
+            PipelineConfig::opaque(&layout, Vertex::desc(), wgpu::include_wgsl!("shader.wgsl"))
+                .build(&device, &config, Some(Texture::DEPTH_FORMAT))
         };
 
         let transparent_pipeline = {
@@ -229,17 +220,8 @@ impl RenderState<'static> {
                 push_constant_ranges: &[],
             });
 
-            create_render_pipeline(
-                &device,
-                &layout,
-                &config,
-                Some(Texture::DEPTH_FORMAT),
-                Vertex::desc(),
-                wgpu::include_wgsl!("shader.wgsl"),
-                false, // depth_write_enabled
-                wgpu::BlendState::ALPHA_BLENDING,
-                None,
-            )
+            PipelineConfig::transparent(&layout, Vertex::desc(), wgpu::include_wgsl!("shader.wgsl"))
+                .build(&device, &config, Some(Texture::DEPTH_FORMAT))
         };
 
         let sun_render_pipeline = {
@@ -249,17 +231,8 @@ impl RenderState<'static> {
                 push_constant_ranges: &[],
             });
 
-            create_render_pipeline(
-                &device,
-                &layout,
-                &config,
-                Some(Texture::DEPTH_FORMAT),
-                SimpleVertex::desc(),
-                wgpu::include_wgsl!("sun.wgsl"),
-                true,
-                wgpu::BlendState::REPLACE,
-                Some(wgpu::Face::Back),
-            )
+            PipelineConfig::opaque(&layout, SimpleVertex::desc(), wgpu::include_wgsl!("sun.wgsl"))
+                .build(&device, &config, Some(Texture::DEPTH_FORMAT))
         };
 
         let moon_render_pipeline = {
@@ -269,17 +242,9 @@ impl RenderState<'static> {
                 push_constant_ranges: &[],
             });
 
-            create_render_pipeline(
-                &device,
-                &layout,
-                &config,
-                Some(Texture::DEPTH_FORMAT),
-                SimpleVertex::desc(),
-                wgpu::include_wgsl!("moon.wgsl"),
-                true,
-                wgpu::BlendState::ALPHA_BLENDING,
-                Some(wgpu::Face::Back),
-            )
+            PipelineConfig::opaque(&layout, SimpleVertex::desc(), wgpu::include_wgsl!("moon.wgsl"))
+                .with_blend_state(wgpu::BlendState::ALPHA_BLENDING)
+                .build(&device, &config, Some(Texture::DEPTH_FORMAT))
         };
 
         Self {
@@ -493,59 +458,100 @@ impl RenderState<'static> {
     }
 }
 
-fn create_render_pipeline(
-    device: &wgpu::Device,
-    layout: &wgpu::PipelineLayout,
-    config: &wgpu::SurfaceConfiguration,
-    depth_format: Option<wgpu::TextureFormat>,
-    vertex_buffer_layout: wgpu::VertexBufferLayout,
-    shader: wgpu::ShaderModuleDescriptor,
+struct PipelineConfig<'a> {
+    layout: &'a wgpu::PipelineLayout,
+    vertex_buffer_layout: wgpu::VertexBufferLayout<'a>,
+    shader: wgpu::ShaderModuleDescriptor<'a>,
     depth_write_enabled: bool,
     blend_state: wgpu::BlendState,
     cull_mode: Option<wgpu::Face>,
-) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(shader);
+}
 
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("render pipeline"),
-        layout: Some(layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: "vs_main",
-            buffers: &[vertex_buffer_layout],
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        },
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: wgpu::FrontFace::Ccw,
-            cull_mode,
-            polygon_mode: wgpu::PolygonMode::Fill,
-            unclipped_depth: false,
-            conservative: false,
-        },
-        depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
-            format,
-            depth_write_enabled,
-            depth_compare: wgpu::CompareFunction::Less,
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState {
-            count: 1,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: "fs_main",
-            targets: &[Some(wgpu::ColorTargetState {
-                format: config.format,
-                blend: Some(blend_state),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        }),
-        multiview: None,
-    })
+impl<'a> PipelineConfig<'a> {
+    fn opaque(
+        layout: &'a wgpu::PipelineLayout,
+        vertex_buffer_layout: wgpu::VertexBufferLayout<'a>,
+        shader: wgpu::ShaderModuleDescriptor<'a>,
+    ) -> Self {
+        Self {
+            layout,
+            vertex_buffer_layout,
+            shader,
+            depth_write_enabled: true,
+            blend_state: wgpu::BlendState::REPLACE,
+            cull_mode: Some(wgpu::Face::Back),
+        }
+    }
+
+    fn transparent(
+        layout: &'a wgpu::PipelineLayout,
+        vertex_buffer_layout: wgpu::VertexBufferLayout<'a>,
+        shader: wgpu::ShaderModuleDescriptor<'a>,
+    ) -> Self {
+        Self {
+            layout,
+            vertex_buffer_layout,
+            shader,
+            depth_write_enabled: false,
+            blend_state: wgpu::BlendState::ALPHA_BLENDING,
+            cull_mode: None,
+        }
+    }
+
+    fn with_blend_state(mut self, blend_state: wgpu::BlendState) -> Self {
+        self.blend_state = blend_state;
+        self
+    }
+
+    fn build(
+        self,
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        depth_format: Option<wgpu::TextureFormat>,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(self.shader);
+
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("render pipeline"),
+            layout: Some(self.layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[self.vertex_buffer_layout],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: self.cull_mode,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
+                format,
+                depth_write_enabled: self.depth_write_enabled,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(self.blend_state),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            multiview: None,
+        })
+    }
 }
