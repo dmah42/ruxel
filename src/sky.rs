@@ -21,7 +21,12 @@ impl Sky {
         let color = wgpu::Color::BLACK;
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("sky buffer"),
-            contents: bytemuck::cast_slice(&[[color.r as f32, color.g as f32, color.b as f32, 1.0]]),
+            contents: bytemuck::cast_slice(&[[
+                color.r as f32,
+                color.g as f32,
+                color.b as f32,
+                1.0,
+            ]]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         Self { color, buffer }

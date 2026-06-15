@@ -5,21 +5,19 @@ use bytemuck::{Pod, Zeroable};
 // TODO RawVertex to make the vertex ctor a bit nicer.
 pub struct Vertex {
     position: [f32; 3],
-    normal: [f32; 3],
-    color: [f32; 4],
-    ao: f32,
+    color: [u8; 4],
+    normal_and_ao: [i8; 4],
 }
 
 impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 4] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32];
+    const ATTRIBS: [wgpu::VertexAttribute; 3] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Snorm8x4];
 
-    pub const fn new(position: [f32; 3], normal: [f32; 3], color: [f32; 4], ao: f32) -> Self {
+    pub const fn new(position: [f32; 3], color: [u8; 4], normal_and_ao: [i8; 4]) -> Self {
         Vertex {
             position,
-            normal,
             color,
-            ao,
+            normal_and_ao,
         }
     }
 
@@ -36,14 +34,14 @@ impl Vertex {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct SimpleVertex {
     position: [f32; 3],
-    normal: [f32; 3],
+    normal: [i8; 4],
 }
 
 impl SimpleVertex {
     const ATTRIBS: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Snorm8x4];
 
-    pub const fn new(position: [f32; 3], normal: [f32; 3]) -> Self {
+    pub const fn new(position: [f32; 3], normal: [i8; 4]) -> Self {
         SimpleVertex { position, normal }
     }
 
@@ -57,7 +55,13 @@ impl SimpleVertex {
 }
 
 const fn simple_vertex(pos: [i8; 3], n: [f32; 3]) -> SimpleVertex {
-    SimpleVertex::new([pos[0] as f32, pos[1] as f32, pos[2] as f32], n)
+    let nx = (n[0] * 127.0) as i8;
+    let ny = (n[1] * 127.0) as i8;
+    let nz = (n[2] * 127.0) as i8;
+    SimpleVertex::new(
+        [pos[0] as f32, pos[1] as f32, pos[2] as f32],
+        [nx, ny, nz, 0],
+    )
 }
 
 pub const CUBE_VERTICES: &[SimpleVertex] = &[

@@ -117,11 +117,11 @@ impl ChunkMesh {
                     }
 
                     let color = block.color();
-                    let color_arr = [
-                        color.r as f32,
-                        color.g as f32,
-                        color.b as f32,
-                        color.a as f32,
+                    let color_arr: [u8; 4] = [
+                        (color.r * 255.0) as u8,
+                        (color.g * 255.0) as u8,
+                        (color.b * 255.0) as u8,
+                        (color.a * 255.0) as u8,
                     ];
                     let is_transparent = color.a < 1.0;
                     let pos = start + Vec3::new(x as f32, y as f32, z as f32);
@@ -137,16 +137,20 @@ impl ChunkMesh {
 
                     let mut add_face = |normal: [f32; 3], vts: &[[f32; 3]; 4], aos: [f32; 4]| {
                         let idx = vertices.len() as u32;
+                        let nx = (normal[0] * 127.0) as i8;
+                        let ny = (normal[1] * 127.0) as i8;
+                        let nz = (normal[2] * 127.0) as i8;
+
                         for (i, v) in vts.iter().enumerate() {
+                            let ao_i8 = (aos[i] * 127.0) as i8;
                             vertices.push(Vertex::new(
                                 [pos.x + v[0], pos.y + v[1], pos.z + v[2]],
-                                normal,
                                 color_arr,
-                                aos[i],
+                                [nx, ny, nz, ao_i8],
                             ));
                         }
 
-                        let target_indices = if color_arr[3] < 1.0 {
+                        let target_indices = if color_arr[3] < 255 {
                             &mut transparent_indices
                         } else {
                             &mut opaque_indices

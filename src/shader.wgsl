@@ -17,9 +17,8 @@ struct LightUniforms {
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
-  @location(1) normal: vec3<f32>,
-  @location(2) color: vec4<f32>,
-  @location(3) ao: f32,
+  @location(1) color: vec4<f32>,
+  @location(2) normal_and_ao: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -34,9 +33,13 @@ struct VertexOutput {
 fn vs_main(model: VertexInput) -> VertexOutput {
   var out: VertexOutput;
   out.color = model.color;
-  out.world_normal = model.normal;
+  out.world_normal = model.normal_and_ao.xyz;
   out.world_position = model.position;
-  out.ao = model.ao;
+  
+  // AO is mapped from 0..127 to 0.0..1.0 by the Snorm format
+  // Negative values shouldn't happen, but we max with 0 just in case
+  out.ao = max(model.normal_and_ao.w, 0.0);
+
   out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
   return out;
 }
@@ -116,8 +119,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   // to avoid slow sqrt)
   let d = camera.view_pos.xyz - in.world_position;
   let dist_sq = dot(d, d);
-  // NOTE: The value 64.0 corresponds to CHUNK_LOAD_RADIUS * 16.
-  let distance_fog_factor = smoothstep(48.0 * 48.0, 64.0 * 64.0, dist_sq);
+  // NOTE: The value 40.0 corresponds to (CHUNK_LOAD_RADIUS - 0.5) * 16.
+  // NOTE: The value 48.0 corresponds to CHUNK_LOAD_RADIUS * 16.
+  let distance_fog_factor = smoothstep(40.0 * 40.0, 48.0 * 48.0, dist_sq);
   result = mix(result, sky.xyz, distance_fog_factor);
 
   // Underwater fog

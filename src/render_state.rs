@@ -439,14 +439,14 @@ impl RenderState<'static> {
 
                 for chunk_col in self.scene.chunk_buffers().values() {
                     for chunk in chunk_col.iter().flatten() {
-                    if let Some((index_buf, num_indices)) = &chunk.opaque_index_buffer {
-                        render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
-                        render_pass
-                            .set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
-                        render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                        if let Some((index_buf, num_indices)) = &chunk.opaque_index_buffer {
+                            render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
+                            render_pass
+                                .set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                            render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                        }
                     }
                 }
-            }
             }
 
             // draw transparent blocks (water)
@@ -457,15 +457,15 @@ impl RenderState<'static> {
 
                 for chunk_col in self.scene.chunk_buffers().values() {
                     for chunk in chunk_col.iter().flatten() {
-                    if let Some((index_buf, num_indices)) = &chunk.transparent_index_buffer {
-                        render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
-                        render_pass
-                            .set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
-                        render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                        if let Some((index_buf, num_indices)) = &chunk.transparent_index_buffer {
+                            render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
+                            render_pass
+                                .set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                            render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                        }
                     }
                 }
             }
-        }
         }
 
         {
