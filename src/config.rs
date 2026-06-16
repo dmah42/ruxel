@@ -6,6 +6,7 @@ use std::fs;
 pub struct Config {
     pub chunk_load_radius: i32,
     pub seed: Option<u32>,
+    pub log_level: String,
 }
 
 impl Default for Config {
@@ -13,6 +14,7 @@ impl Default for Config {
         Self {
             chunk_load_radius: 3,
             seed: None,
+            log_level: "warn".to_string(),
         }
     }
 }

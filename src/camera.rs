@@ -315,6 +315,7 @@ pub struct Controller {
     amount_down: f32,
 
     is_jumping: bool,
+    is_sprinting: bool,
 
     rotate_horiz: f32,
     rotate_vert: f32,
@@ -338,6 +339,7 @@ impl Controller {
             amount_down: 0.0,
 
             is_jumping: false,
+            is_sprinting: false,
 
             rotate_horiz: 0.0,
             rotate_vert: 0.0,
@@ -388,10 +390,10 @@ impl Controller {
                 }
                 true
             }
-            //VirtualKeyCode::LShift => {
-            //    self.amount_down = amount;
-            //    true
-            //}
+            KeyCode::ShiftLeft | KeyCode::ShiftRight => {
+                self.is_sprinting = state == ElementState::Pressed;
+                true
+            }
             _ => false,
         }
     }
@@ -418,8 +420,14 @@ impl Controller {
 
         let move_dir = forward * (self.amount_forward - self.amount_backward)
             + right * (self.amount_right - self.amount_left);
-        camera.velocity.x = move_dir.x * self.speed;
-        camera.velocity.z = move_dir.z * self.speed;
+        let current_speed = if self.is_sprinting {
+            self.speed * 2.0
+        } else {
+            self.speed
+        };
+
+        camera.velocity.x = move_dir.x * current_speed;
+        camera.velocity.z = move_dir.z * current_speed;
 
         // zoom
         let (pitch_sin, pitch_cos) = camera.pitch.sin_cos();
