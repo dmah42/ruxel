@@ -17,8 +17,9 @@ struct LightUniforms {
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
-  @location(1) color: vec4<f32>,
-  @location(2) normal_and_ao: vec4<f32>,
+  @location(1) material: u32,
+  @location(2) color: vec4<f32>,
+  @location(3) normal_and_ao: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -27,6 +28,7 @@ struct VertexOutput {
   @location(1) world_normal: vec3<f32>,
   @location(2) world_position: vec3<f32>,
   @location(3) ao: f32,
+  @location(4) @interpolate(flat) material: u32,
 }
 
 @vertex
@@ -35,6 +37,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
   out.color = model.color;
   out.world_normal = model.normal_and_ao.xyz;
   out.world_position = model.position;
+  out.material = model.material;
   
   // AO is mapped from 0..127 to 0.0..1.0 by the Snorm format
   // Negative values shouldn't happen, but we max with 0 just in case
@@ -77,20 +80,23 @@ fn smooth_noise(p: vec3<f32>) -> f32 {
     );
 }
 
-fn get_texture_noise(pos: vec3<f32>, color: vec4<f32>) -> f32 {
-    if color.w < 1.0 {
+fn get_texture_noise(pos: vec3<f32>, material: u32) -> f32 {
+    if material == 5u {
         // Water: Swirly
         let n1 = smooth_noise(pos * 4.0);
         return smooth_noise(pos * 8.0 + vec3<f32>(n1 * 5.0));
-    } else if color.g > color.r && color.g > color.b && color.g > 0.4 {
+    } else if material == 4u {
+        // Ice: Smooth
+        return 0.5;
+    } else if material == 2u {
         // Grass: Streaky (stretch the Y coordinate)
         let streaky_pos = vec3<f32>(pos.x * 16.0, pos.y * 2.0, pos.z * 16.0);
         return smooth_noise(streaky_pos);
-    } else if color.r > 0.6 && color.g > 0.6 && color.b < 0.5 {
+    } else if material == 1u {
         // Sand: Grainy (high frequency, no interpolation for pixelated look)
         return hash(floor(pos * 32.0));
     }
-    // Default (Dirt/Stone/Wood): slightly chunky
+    // Default (Rock/Dirt/Wood): slightly chunky
     return smooth_noise(pos * 16.0);
 }
 
@@ -100,20 +106,47 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let ambient_strength = 0.1;
   let ambient_color = sky.xyz * ambient_strength;
 
-  var total_light = ambient_color;
+  var total_diffuse = ambient_color;
 
   let lights = lights.lights;
-  total_light += light_color(lights[0], in.world_position, in.world_normal);
-  total_light += light_color(lights[1], in.world_position, in.world_normal);
+  total_diffuse += light_color(lights[0], in.world_position, in.world_normal);
+  total_diffuse += light_color(lights[1], in.world_position, in.world_normal);
 
-  let noise_val = get_texture_noise(in.world_position, in.color);
+  let view_dir = normalize(camera.view_pos.xyz - in.world_position);
+  var spec_strength = 0.0;
+  var shininess = 1.0;
+  
+  if (in.material == 5u) { // Water
+      spec_strength = 0.8;
+      shininess = 16.0;
+  } else if (in.material == 4u) { // Ice
+      spec_strength = 1.2;
+      shininess = 32.0;
+  }
+
+  var total_specular = vec3<f32>(0.0);
+  if (spec_strength > 0.0) {
+      let l1_dir = normalize(lights[0].position - in.world_position);
+      if (dot(in.world_normal, l1_dir) > 0.0) {
+          let h1 = normalize(l1_dir + view_dir);
+          total_specular += lights[0].color.xyz * pow(max(dot(in.world_normal, h1), 0.0), shininess) * lights[0].color.w;
+      }
+      let l2_dir = normalize(lights[1].position - in.world_position);
+      if (dot(in.world_normal, l2_dir) > 0.0) {
+          let h2 = normalize(l2_dir + view_dir);
+          total_specular += lights[1].color.xyz * pow(max(dot(in.world_normal, h2), 0.0), shininess) * lights[1].color.w;
+      }
+      total_specular *= spec_strength;
+  }
+
+  let noise_val = get_texture_noise(in.world_position, in.material);
   
   // Map noise from [0, 1] to something like [0.8, 1.1] to subtly perturb color
   let color_variation = mix(0.8, 1.1, noise_val);
   
   let base_color = in.color.xyz * color_variation;
 
-  var result = total_light * base_color * in.ao;
+  var result = total_diffuse * base_color * in.ao + total_specular;
 
   // Distance fog to blend chunks smoothly into the sky (using squared distance
   // to avoid slow sqrt)

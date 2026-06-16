@@ -1,11 +1,11 @@
 #[derive(Debug, Copy, Clone)]
 pub enum Type {
-    Inactive,
-    Sand,
-    Grass,
-    Rock,
-    Ice,
-    Water,
+    Inactive = 0,
+    Sand = 1,
+    Grass = 2,
+    Rock = 3,
+    Ice = 4,
+    Water = 5,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -32,7 +32,12 @@ impl Block {
 
     pub fn color(&self) -> wgpu::Color {
         match self.ty {
-            Type::Ice => wgpu::Color::WHITE,
+            Type::Ice => wgpu::Color {
+                r: 0.8,
+                g: 0.9,
+                b: 1.0,
+                a: 1.0,
+            },
             Type::Rock => wgpu::Color {
                 r: 0.2,
                 g: 0.2,
@@ -54,5 +59,9 @@ impl Block {
             },
             Type::Inactive => wgpu::Color::TRANSPARENT,
         }
+    }
+
+    pub fn material_id(&self) -> u32 {
+        self.ty as u32
     }
 }

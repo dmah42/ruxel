@@ -48,7 +48,7 @@ impl ChunkMesh {
                 let chunk_z = (wz as f32 / 16.0).floor() as i32;
                 let cy_index = (wy as f32 / 16.0).floor() as i32;
                 
-                if chunk_x >= 0 && chunk_z >= 0 && cy_index >= 0 && cy_index < 8 {
+                if chunk_x >= 0 && chunk_z >= 0 && (0..8).contains(&cy_index) {
                     let neighbor_key = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
                     if let Some(col) = loaded_chunks.get(&neighbor_key) {
                         let lx = wx.rem_euclid(16) as usize;
@@ -78,7 +78,7 @@ impl ChunkMesh {
                 let chunk_z = (wz as f32 / 16.0).floor() as i32;
                 let cy_index = (wy as f32 / 16.0).floor() as i32;
                 
-                if chunk_x >= 0 && chunk_z >= 0 && cy_index >= 0 && cy_index < 8 {
+                if chunk_x >= 0 && chunk_z >= 0 && (0..8).contains(&cy_index) {
                     let neighbor_key = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
                     if let Some(col) = loaded_chunks.get(&neighbor_key) {
                         let lx = wx.rem_euclid(16) as usize;
@@ -135,6 +135,8 @@ impl ChunkMesh {
                         }
                     };
 
+                    let material_id = block.material_id();
+
                     let mut add_face = |normal: [f32; 3], vts: &[[f32; 3]; 4], aos: [f32; 4]| {
                         let idx = vertices.len() as u32;
                         let nx = (normal[0] * 127.0) as i8;
@@ -145,6 +147,7 @@ impl ChunkMesh {
                             let ao_i8 = (aos[i] * 127.0) as i8;
                             vertices.push(Vertex::new(
                                 [pos.x + v[0], pos.y + v[1], pos.z + v[2]],
+                                material_id,
                                 color_arr,
                                 [nx, ny, nz, ao_i8],
                             ));

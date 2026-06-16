@@ -5,17 +5,19 @@ use bytemuck::{Pod, Zeroable};
 // TODO RawVertex to make the vertex ctor a bit nicer.
 pub struct Vertex {
     position: [f32; 3],
+    material: u32,
     color: [u8; 4],
     normal_and_ao: [i8; 4],
 }
 
 impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 3] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Snorm8x4];
+    const ATTRIBS: [wgpu::VertexAttribute; 4] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Uint32, 2 => Unorm8x4, 3 => Snorm8x4];
 
-    pub const fn new(position: [f32; 3], color: [u8; 4], normal_and_ao: [i8; 4]) -> Self {
+    pub const fn new(position: [f32; 3], material: u32, color: [u8; 4], normal_and_ao: [i8; 4]) -> Self {
         Vertex {
             position,
+            material,
             color,
             normal_and_ao,
         }

@@ -246,6 +246,14 @@ impl Ruxel {
                             control_flow.exit();
                         }
                     }
+                    WindowEvent::Focused(focused) => {
+                        if !focused {
+                            self.mouse_pressed = false;
+                            if self.mouse_grabbed {
+                                self.ungrab_mouse();
+                            }
+                        }
+                    }
                     WindowEvent::Resized(physical_size) => {
                         self.state.resize(*physical_size);
                     }
