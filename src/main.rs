@@ -1,5 +1,5 @@
 use rand::Rng;
-use ruxel::Ruxel;
+use ruxel_lib::Ruxel;
 
 #[pollster::main]
 async fn main() {

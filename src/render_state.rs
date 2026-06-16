@@ -370,7 +370,7 @@ impl RenderState<'static> {
         self.queue.write_buffer(
             self.scene.sky().buffer(),
             0,
-            bytemuck::cast_slice(&[self.scene.sky().to_raw()]),
+            bytemuck::cast_slice(&[self.scene.sky().to_raw(self.config.format.is_srgb())]),
         );
     }
 

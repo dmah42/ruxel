@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
+name = "ruxel_lib"
 crate-type = ["cdylib", "rlib"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -20,6 +21,7 @@ rand = "0.8.*"
 wgpu = "0.20.*"
 wgpu_text = "0.8.*"
 winit = "0.29.*"
+palette = "0.7.*"
 
 [target.'cfg(target_arch = "wasm_32")'.dependencies]
 console_error_panic_hook = "0.1.*"
