@@ -222,7 +222,8 @@ impl Ruxel {
                 } => {
                     self.received_mouse_motion = true;
                     if self.mouse_grabbed {
-                        self.camera_controller.process_mouse(delta.0, delta.1);
+                        let scale = self.window.scale_factor();
+                        self.camera_controller.process_mouse(delta.0 * scale, delta.1 * scale);
                     }
                 }
                 Event::WindowEvent {
@@ -263,6 +264,7 @@ impl Ruxel {
                                 if let Some(last_pos) = self.last_cursor_pos {
                                     let dx = position.x - last_pos.x;
                                     let dy = position.y - last_pos.y;
+                                    println!("DEBUG EVENT: CursorMoved dx: {}, dy: {}", dx, dy);
                                     self.camera_controller.process_mouse(dx, dy);
                                 }
 
