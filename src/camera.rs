@@ -18,6 +18,9 @@ const JUMP_VELOCITY: f32 = 10.0;
 pub struct Uniform {
     view_proj: [f32; 16],
     view_pos: [f32; 4],
+    fog_start_sq: f32,
+    fog_end_sq: f32,
+    _padding: [f32; 2],
 }
 
 impl Uniform {
@@ -25,13 +28,21 @@ impl Uniform {
         Self {
             view_proj: *Mat4::IDENTITY.as_ref(),
             view_pos: [0.0; 4],
+            fog_start_sq: 0.0,
+            fog_end_sq: 0.0,
+            _padding: [0.0; 2],
         }
     }
 
-    pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection) {
+    pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection, load_radius: i32) {
         self.view_proj = *(projection.matrix() * camera.matrix()).as_ref();
         let visual_pos = camera.visual_position();
         self.view_pos = [visual_pos.x, visual_pos.y, visual_pos.z, 1.0];
+
+        let fog_start = (load_radius as f32 - 0.5) * 16.0;
+        let fog_end = load_radius as f32 * 16.0;
+        self.fog_start_sq = fog_start * fog_start;
+        self.fog_end_sq = fog_end * fog_end;
     }
 }
 

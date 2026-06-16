@@ -7,31 +7,33 @@ it's written in rust.
 
 ## Future improvements
 
-1. **Dynamic chunk range**: change the `CHUNK_LOAD_RADIUS` from a const to a
-   value that can be changed based on computer performance capabilities. note
-   the shader will also need to be updated somehow as the fog radius relies on
-   the `CHUNK_LOAD_RADIUS` implicitly.
-2. **Dynamic World Simulation**: Implement block-update mechanics where the
+1. **Dynamic World Simulation**: Implement block-update mechanics where the
    world evolves over time (e.g., trees grow, ice melts, water flows).
-3. **Simulate a better sky**: <https://nicoschertler.wordpress.com/2013/04/03/simulating-a-days-sky/>
-4. **Save/Load World to Disk**: Implement chunk serialization so the
+2. **Simulate a better sky**: <https://nicoschertler.wordpress.com/2013/04/03/simulating-a-days-sky/>
+3. **Save/Load World to Disk**: Implement chunk serialization so the
    procedurally generated terrain and any user modifications persist between
    sessions.
-5. **More terrain types**: We currently only have mountains (with water). It
+4. **More terrain types**: We currently only have mountains (with water). It
    would be nice to have some plains, some rolling hills, etc.
-6. **Trees & Flora (Decorators)**: Add a decorator pass during chunk generation
+5. **Trees & Flora (Decorators)**: Add a decorator pass during chunk generation
    to place structures like trees or tall grass.
-7. **3D Noise / Caves**: Introduce 3D noise to carve out cave networks below the
+6. **3D Noise / Caves**: Introduce 3D noise to carve out cave networks below the
    surface.
-8. **Creatures/Entities**: Add mobile, AI-driven entities (mobs/animals) that
+7. **Creatures/Entities**: Add mobile, AI-driven entities (mobs/animals) that
    navigate the voxel terrain and interact with the world.
-9. **More Block Types**: Expand the block palette with new materials and
+8. **More Block Types**: Expand the block palette with new materials and
    properties to allow for richer building and terrain variation.
-10. **Player Object Rendering**: Render a 3D model/mesh for the player character
+9. **Player Object Rendering**: Render a 3D model/mesh for the player character
    instead of just relying on the camera's perspective, allowing third-person
    views and visible avatars.
-11. **Shadow Mapping**: Implement directional shadows cast by the sun and moon
+10. **Shadow Mapping**: Implement directional shadows cast by the sun and moon
     across the voxel terrain to add depth and realism to the lighting.
+11. **Expand Configuration File**: We now have a `config.toml` that handles
+    `chunk_load_radius` and `seed`. In the future, we should expand this to
+    include:
+    - Display settings: window resolution, fullscreen mode, VSync.
+    - Gameplay settings: FOV (field of view), mouse sensitivity, keybindings.
+    - Graphics settings: shadow quality, anti-aliasing.
 
 ## Tech Debt
 

@@ -2,6 +2,9 @@
 struct CameraUniform {
   view_proj: mat4x4<f32>,
   view_pos: vec4<f32>,
+  fog_start_sq: f32,
+  fog_end_sq: f32,
+  padding: vec2<f32>,
 }
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 
@@ -152,9 +155,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   // to avoid slow sqrt)
   let d = camera.view_pos.xyz - in.world_position;
   let dist_sq = dot(d, d);
-  // NOTE: The value 40.0 corresponds to (CHUNK_LOAD_RADIUS - 0.5) * 16.
-  // NOTE: The value 48.0 corresponds to CHUNK_LOAD_RADIUS * 16.
-  let distance_fog_factor = smoothstep(40.0 * 40.0, 48.0 * 48.0, dist_sq);
+  let distance_fog_factor = smoothstep(camera.fog_start_sq, camera.fog_end_sq, dist_sq);
   result = mix(result, sky.xyz, distance_fog_factor);
 
   // Underwater fog

@@ -16,7 +16,6 @@ use crate::{
     terrain::MountainTerrain,
 };
 
-pub const CHUNK_LOAD_RADIUS: i32 = 3;
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -62,6 +61,8 @@ pub struct Chunks {
     chunk_loader: Option<JoinHandle<()>>,
     loader_tx: Option<Sender<UVec2>>,
 
+    load_radius: i32,
+
     terrain: MountainTerrain,
 }
 
@@ -77,7 +78,7 @@ impl Drop for Chunks {
 }
 
 impl Chunks {
-    pub fn new(seed: u32) -> Self {
+    pub fn new(seed: u32, load_radius: i32) -> Self {
         // TODO: shut these down correctly.
         let (loader_tx, loader_rx) = mpsc::channel();
 
@@ -115,8 +116,14 @@ impl Chunks {
             chunk_loader: Some(chunk_loader),
             loader_tx: Some(loader_tx),
 
+            load_radius,
+
             terrain,
         }
+    }
+
+    pub fn load_radius(&self) -> i32 {
+        self.load_radius
     }
 
     pub fn block_position(&self) -> &IVec2 {
@@ -141,12 +148,12 @@ impl Chunks {
         self.chunk_position = IVec2::new(self.block_position.x / 16, self.block_position.y / 16);
 
         let start_chunk_position = UVec2::new(
-            max(0, self.chunk_position.x - CHUNK_LOAD_RADIUS) as u32,
-            max(0, self.chunk_position.y - CHUNK_LOAD_RADIUS) as u32,
+            max(0, self.chunk_position.x - self.load_radius) as u32,
+            max(0, self.chunk_position.y - self.load_radius) as u32,
         );
         let end_chunk_position = UVec2::new(
-            max(0, self.chunk_position.x + CHUNK_LOAD_RADIUS) as u32,
-            max(0, self.chunk_position.y + CHUNK_LOAD_RADIUS) as u32,
+            max(0, self.chunk_position.x + self.load_radius) as u32,
+            max(0, self.chunk_position.y + self.load_radius) as u32,
         );
 
         // clean up any out of range chunks

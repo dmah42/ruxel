@@ -44,7 +44,7 @@ pub struct RenderState<'window> {
 }
 
 impl RenderState<'static> {
-    pub async fn new(seed: u32, window: Arc<Window>) -> Self {
+    pub async fn new(seed: u32, config: crate::config::Config, window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -88,7 +88,7 @@ impl RenderState<'static> {
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
-        let config = wgpu::SurfaceConfiguration {
+        let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width,
@@ -98,12 +98,12 @@ impl RenderState<'static> {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        surface.configure(&device, &config);
+        surface.configure(&device, &surface_config);
 
-        let depth_texture = Texture::new_depth_texture(&device, &config, "depth texture");
+        let depth_texture = Texture::new_depth_texture(&device, &surface_config, "depth texture");
 
-        let ui = Ui::new(&device, &config);
-        let scene = Scene::new(seed, &device);
+        let ui = Ui::new(&device, &surface_config);
+        let scene = Scene::new(seed, config.clone(), &device);
 
         let mut rng = rand::thread_rng();
         let mut playerx = rng.gen_range(2000.0..4000.0);
@@ -128,14 +128,14 @@ impl RenderState<'static> {
         );
 
         let projection = Projection::new(
-            config.width as f32 / config.height as f32,
+            surface_config.width as f32 / surface_config.height as f32,
             75.0_f32.to_radians(),
             0.1,
             1000.0,
         );
 
         let mut camera_uniform = camera::Uniform::new();
-        camera_uniform.update_view_proj(&camera, &projection);
+        camera_uniform.update_view_proj(&camera, &projection, config.chunk_load_radius);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("camera buffer"),
@@ -239,7 +239,7 @@ impl RenderState<'static> {
             });
 
             PipelineConfig::opaque(&layout, Vertex::desc(), wgpu::include_wgsl!("shader.wgsl"))
-                .build(&device, &config, Some(Texture::DEPTH_FORMAT))
+                .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
         };
 
         let transparent_pipeline = {
@@ -250,7 +250,7 @@ impl RenderState<'static> {
             });
 
             PipelineConfig::transparent(&layout, Vertex::desc(), wgpu::include_wgsl!("shader.wgsl"))
-                .build(&device, &config, Some(Texture::DEPTH_FORMAT))
+                .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
         };
 
         let sun_render_pipeline = {
@@ -261,7 +261,7 @@ impl RenderState<'static> {
             });
 
             PipelineConfig::opaque(&layout, SimpleVertex::desc(), wgpu::include_wgsl!("sun.wgsl"))
-                .build(&device, &config, Some(Texture::DEPTH_FORMAT))
+                .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
         };
 
         let moon_render_pipeline = {
@@ -273,7 +273,7 @@ impl RenderState<'static> {
 
             PipelineConfig::opaque(&layout, SimpleVertex::desc(), wgpu::include_wgsl!("moon.wgsl"))
                 .with_blend_state(wgpu::BlendState::ALPHA_BLENDING)
-                .build(&device, &config, Some(Texture::DEPTH_FORMAT))
+                .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
         };
 
         let wireframe_pipeline = {
@@ -285,7 +285,7 @@ impl RenderState<'static> {
 
             PipelineConfig::opaque(&layout, SimpleVertex::desc(), wgpu::include_wgsl!("wireframe.wgsl"))
                 .with_topology(wgpu::PrimitiveTopology::LineList)
-                .build(&device, &config, Some(Texture::DEPTH_FORMAT))
+                .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
         };
 
         Self {
@@ -293,7 +293,7 @@ impl RenderState<'static> {
             surface,
             device,
             queue,
-            config,
+            config: surface_config,
             render_pipeline,
             transparent_pipeline,
             sun_render_pipeline,
@@ -354,7 +354,7 @@ impl RenderState<'static> {
         }
 
         self.camera_uniform
-            .update_view_proj(&self.camera, &self.projection);
+            .update_view_proj(&self.camera, &self.projection, self.scene.chunks().load_radius());
         self.queue.write_buffer(
             &self.camera_buffer,
             0,

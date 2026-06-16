@@ -1,6 +1,7 @@
 mod block;
 mod camera;
 mod chunks;
+pub mod config;
 mod light;
 mod mesh;
 mod render_state;
@@ -41,7 +42,7 @@ pub struct Ruxel {
 }
 
 impl Ruxel {
-    pub async fn new(seed: u32) -> Result<Self, winit::error::EventLoopError> {
+    pub async fn new() -> Result<Self, winit::error::EventLoopError> {
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
                 std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -50,6 +51,10 @@ impl Ruxel {
                 env_logger::init();
             }
         }
+
+        let config = crate::config::Config::load_or_create();
+        let seed = config.seed.expect("Seed should always be present after load_or_create");
+        log::info!("Loaded config: {:?}", config);
         let event_loop = EventLoop::new()?;
         let window = WindowBuilder::new()
             .with_min_inner_size(PhysicalSize::new(1024, 768))
@@ -76,7 +81,7 @@ impl Ruxel {
                 .expect("failed to add canvas to document body");
         }
 
-        let state = RenderState::new(seed, window.clone()).await;
+        let state = RenderState::new(seed, config, window.clone()).await;
 
         Ok(Self {
             event_loop: Some(event_loop),

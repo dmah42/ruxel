@@ -58,7 +58,7 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn new(seed: u32, device: &wgpu::Device) -> Self {
+    pub fn new(seed: u32, config: crate::config::Config, device: &wgpu::Device) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
             contents: bytemuck::cast_slice(CUBE_VERTICES),
@@ -84,7 +84,7 @@ impl Scene {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let chunks = Chunks::new(seed);
+        let chunks = Chunks::new(seed, config.chunk_load_radius);
 
         // TODO: position sun relative to player always.
         let lights = Lights {
