@@ -211,44 +211,42 @@ impl Chunks {
                 if chunk_y < col.len() {
                     col[chunk_y].blocks[lx][ly][lz].set_type(block_type);
                     col[chunk_y].dirty = true;
+                }
+            }
 
-                    if ly == 15 && chunk_y + 1 < col.len() {
-                        col[chunk_y + 1].dirty = true;
-                    }
-                    if ly == 0 && chunk_y > 0 {
-                        col[chunk_y - 1].dirty = true;
-                    }
-                }
-            }
-            if lx == 15 {
-                let key_adj = UVec2::new(chunk_x + 1, chunk_z);
-                if let Some(col) = loaded.get_mut(&key_adj) {
-                    if chunk_y < col.len() {
-                        col[chunk_y].dirty = true;
-                    }
-                }
-            }
-            if lx == 0 && chunk_x > 0 {
-                let key_adj = UVec2::new(chunk_x - 1, chunk_z);
-                if let Some(col) = loaded.get_mut(&key_adj) {
-                    if chunk_y < col.len() {
-                        col[chunk_y].dirty = true;
-                    }
-                }
-            }
-            if lz == 15 {
-                let key_adj = UVec2::new(chunk_x, chunk_z + 1);
-                if let Some(col) = loaded.get_mut(&key_adj) {
-                    if chunk_y < col.len() {
-                        col[chunk_y].dirty = true;
-                    }
-                }
-            }
-            if lz == 0 && chunk_z > 0 {
-                let key_adj = UVec2::new(chunk_x, chunk_z - 1);
-                if let Some(col) = loaded.get_mut(&key_adj) {
-                    if chunk_y < col.len() {
-                        col[chunk_y].dirty = true;
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        if dx == 0 && dy == 0 && dz == 0 {
+                            continue;
+                        }
+
+                        let nx = x + dx;
+                        let ny = y + dy;
+                        let nz = z + dz;
+
+                        if nx < 0 || ny < 0 || nz < 0 || ny >= 128 {
+                            continue;
+                        }
+
+                        let ncx = (nx as u32) / 16;
+                        let ncy = (ny as usize) / 16;
+                        let ncz = (nz as u32) / 16;
+
+                        if ncx != chunk_x || ncy != chunk_y || ncz != chunk_z {
+                            let n_key = UVec2::new(ncx, ncz);
+                            if let Some(n_col) = loaded.get_mut(&n_key) {
+                                if ncy < n_col.len() {
+                                    let nlx = (nx as usize) % 16;
+                                    let nly = (ny as usize) % 16;
+                                    let nlz = (nz as usize) % 16;
+
+                                    if n_col[ncy].blocks()[nlx][nly][nlz].is_active() {
+                                        n_col[ncy].dirty = true;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
