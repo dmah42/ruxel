@@ -264,7 +264,6 @@ impl Ruxel {
                                 if let Some(last_pos) = self.last_cursor_pos {
                                     let dx = position.x - last_pos.x;
                                     let dy = position.y - last_pos.y;
-                                    println!("DEBUG EVENT: CursorMoved dx: {}, dy: {}", dx, dy);
                                     self.camera_controller.process_mouse(dx, dy);
                                 }
 

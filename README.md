@@ -5,8 +5,6 @@ it's written in rust.
 
 ## Bugs
 
-- Camera motion feels really slow on mouse movement on windows
-
 ## Future improvements
 
 1. **Dynamic chunk range**: change the `CHUNK_LOAD_RADIUS` from a const to a
