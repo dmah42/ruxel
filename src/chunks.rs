@@ -98,7 +98,7 @@ impl Chunks {
             .spawn(move || {
                 for key in loader_rx {
                     let chunks = load_chunks(&terrain_clone, key);
-                    println!("completed loading of chunk {key}");
+                    log::debug!("completed loading of chunk {key}");
                     loaded_clone
                         .lock()
                         .expect("locked loaded")
@@ -176,7 +176,7 @@ impl Chunks {
                 if loaded.contains_key(&key) || loading.contains(&key) {
                     continue;
                 }
-                println!("asking to load {key}");
+                log::debug!("asking to load {key}");
                 loading.insert(key);
                 self.loader_tx
                     .as_ref()
@@ -296,7 +296,7 @@ impl Chunks {
 }
 
 fn load_chunks(terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
-    println!("loading chunk {key}");
+    log::debug!("loading chunk {key}");
     let mut chunks = Vec::new();
     for chunky in 0..8 {
         let mut chunk = Chunk {
