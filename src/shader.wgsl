@@ -1,6 +1,7 @@
 // Vertex shader
 struct CameraUniform {
   view_proj: mat4x4<f32>,
+  inv_view_proj: mat4x4<f32>,
   view_pos: vec4<f32>,
   fog_start_sq: f32,
   fog_end_sq: f32,
@@ -15,8 +16,62 @@ struct LightUniform {
 struct LightUniforms {
   lights: array<LightUniform, 2>,
 }
-@group(1) @binding(0) var<uniform> sky: vec4<f32>;
+struct SkyUniform {
+    color: vec4<f32>,
+    a: vec4<f32>,
+    b: vec4<f32>,
+    c: vec4<f32>,
+    d: vec4<f32>,
+    e: vec4<f32>,
+    z: vec4<f32>,
+    sun_dir: vec4<f32>,
+};
+@group(1) @binding(0) var<uniform> sky: SkyUniform;
 @group(1) @binding(1) var<uniform> lights: LightUniforms;
+
+fn perez(A: vec3<f32>, B: vec3<f32>, C: vec3<f32>, D: vec3<f32>, E: vec3<f32>, Z: vec3<f32>, sunDir: vec3<f32>, viewDir: vec3<f32>) -> vec3<f32> {
+    let theta = acos(max(0.001, viewDir.y));
+    let gamma = acos(clamp(dot(viewDir, sunDir), -1.0, 1.0));
+    
+    let term1 = 1.0 + A * exp(B / cos(theta));
+    let term2 = 1.0 + C * exp(D * gamma) + E * pow(cos(gamma), 2.0);
+    return term1 * term2;
+}
+
+fn YxyToRGB(Yxy: vec3<f32>) -> vec3<f32> {
+    var rgb: vec3<f32>;
+    let z = max(Yxy.z, 0.0001);
+    rgb.r = Yxy.x * ( 3.2406 * Yxy.y - 1.5372 * z - 0.4986 * (1.0 - Yxy.y - z)) / z;
+    rgb.g = Yxy.x * (-0.9689 * Yxy.y + 1.8758 * z + 0.0415 * (1.0 - Yxy.y - z)) / z;
+    rgb.b = Yxy.x * ( 0.0557 * Yxy.y - 0.2040 * z + 1.0570 * (1.0 - Yxy.y - z)) / z;
+    return rgb;
+}
+
+fn get_sky_color(view_dir: vec3<f32>) -> vec3<f32> {
+    let A = vec3<f32>(sky.a.x, sky.a.y, sky.a.z);
+    let B = vec3<f32>(sky.b.x, sky.b.y, sky.b.z);
+    let C = vec3<f32>(sky.c.x, sky.c.y, sky.c.z);
+    let D = vec3<f32>(sky.d.x, sky.d.y, sky.d.z);
+    let E = vec3<f32>(sky.e.x, sky.e.y, sky.e.z);
+    let Z = vec3<f32>(sky.z.x, sky.z.y, sky.z.z);
+    let sun_dir = normalize(sky.sun_dir.xyz);
+    
+    let f = perez(A, B, C, D, E, Z, sun_dir, view_dir);
+    let f0 = perez(A, B, C, D, E, Z, sun_dir, vec3<f32>(0.0, 1.0, 0.0));
+    let Yxy = Z * f / f0;
+    var color = YxyToRGB(Yxy);
+
+    color = vec3<f32>(1.0) - exp(-color * 1.5);
+    
+    let is_night = clamp(-sun_dir.y * 3.0, 0.0, 1.0);
+    if (is_night > 0.0) {
+        let moon_dir = normalize(lights.lights[1].position - camera.view_pos.xyz);
+        let moon_height = max(0.0, moon_dir.y);
+        let night_color = vec3<f32>(0.01, 0.02, 0.05) * (1.0 + moon_height * 0.5);
+        color = mix(color, night_color, is_night);
+    }
+    return color;
+}
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
@@ -107,7 +162,7 @@ fn get_texture_noise(pos: vec3<f32>, material: u32) -> f32 {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let ambient_strength = 0.1;
-  let ambient_color = sky.xyz * ambient_strength;
+  let ambient_color = sky.color.xyz * ambient_strength;
 
   var total_diffuse = ambient_color;
 
@@ -156,7 +211,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let d = camera.view_pos.xyz - in.world_position;
   let dist_sq = dot(d, d);
   let distance_fog_factor = smoothstep(camera.fog_start_sq, camera.fog_end_sq, dist_sq);
-  result = mix(result, sky.xyz, distance_fog_factor);
+  if (distance_fog_factor > 0.0) {
+      let view_dir_to_fragment = normalize(-d);
+      let fog_sky_color = get_sky_color(view_dir_to_fragment);
+      result = mix(result, fog_sky_color, distance_fog_factor);
+  }
 
   // Underwater fog
   if (camera.view_pos.y < 32.0) {

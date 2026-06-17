@@ -25,6 +25,7 @@ pub struct RenderState<'window> {
     transparent_pipeline: wgpu::RenderPipeline,
     sun_render_pipeline: wgpu::RenderPipeline,
     moon_render_pipeline: wgpu::RenderPipeline,
+    sky_render_pipeline: wgpu::RenderPipeline,
     wireframe_pipeline: wgpu::RenderPipeline,
     selected_block: Option<glam::IVec3>,
 
@@ -288,6 +289,58 @@ impl RenderState<'static> {
                 .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
         };
 
+        let sky_render_pipeline = {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("sky pipeline layout"),
+                bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            let shader = device.create_shader_module(wgpu::include_wgsl!("sky.wgsl"));
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("sky render pipeline"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: Texture::DEPTH_FORMAT,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                multiview: None,
+            })
+        };
+
         Self {
             size,
             surface,
@@ -298,6 +351,7 @@ impl RenderState<'static> {
             transparent_pipeline,
             sun_render_pipeline,
             moon_render_pipeline,
+            sky_render_pipeline,
             wireframe_pipeline,
             selected_block: None,
             ui,
@@ -462,6 +516,14 @@ impl RenderState<'static> {
                         }
                     }
                 }
+            }
+
+            // draw sky
+            {
+                render_pass.set_pipeline(&self.sky_render_pipeline);
+                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.light_bind_group, &[]);
+                render_pass.draw(0..3, 0..1);
             }
 
             // draw transparent blocks (water)

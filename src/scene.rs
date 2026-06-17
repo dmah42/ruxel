@@ -192,7 +192,7 @@ impl Scene {
         self.lights.lights[0].position = *player_position + self.sun_offset;
         self.lights.lights[1].position = *player_position + self.moon_offset;
 
-        self.sky.update(dt, &self.lights.lights[0].position);
+        self.sky.update(dt, &self.sun_offset);
     }
 
     fn update_chunk_buffers(&mut self, device: &wgpu::Device) {

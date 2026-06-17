@@ -17,6 +17,7 @@ const JUMP_VELOCITY: f32 = 10.0;
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Uniform {
     view_proj: [f32; 16],
+    inv_view_proj: [f32; 16],
     view_pos: [f32; 4],
     fog_start_sq: f32,
     fog_end_sq: f32,
@@ -27,6 +28,7 @@ impl Uniform {
     pub fn new() -> Self {
         Self {
             view_proj: *Mat4::IDENTITY.as_ref(),
+            inv_view_proj: *Mat4::IDENTITY.as_ref(),
             view_pos: [0.0; 4],
             fog_start_sq: 0.0,
             fog_end_sq: 0.0,
@@ -35,7 +37,9 @@ impl Uniform {
     }
 
     pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection, load_radius: i32) {
-        self.view_proj = *(projection.matrix() * camera.matrix()).as_ref();
+        let vp = projection.matrix() * camera.matrix();
+        self.view_proj = *vp.as_ref();
+        self.inv_view_proj = *vp.inverse().as_ref();
         let visual_pos = camera.visual_position();
         self.view_pos = [visual_pos.x, visual_pos.y, visual_pos.z, 1.0];
 
