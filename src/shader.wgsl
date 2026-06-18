@@ -108,8 +108,24 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 fn light_color(light: LightUniform, pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
   let dir = normalize(light.position - pos);
 
-  let diffuse_strength = max(dot(normal, dir), 0.0);
+  // Fade out the light as it dips below the horizon line
+  let horizon_fade = smoothstep(-0.1, 0.1, dir.y);
+
+  let diffuse_strength = max(dot(normal, dir), 0.0) * horizon_fade;
   return light.color.xyz * diffuse_strength * light.color.w;
+}
+
+fn specular_color(light: LightUniform, pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, shininess: f32) -> vec3<f32> {
+    let light_dir = normalize(light.position - pos);
+    if (dot(normal, light_dir) <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    
+    let h = normalize(light_dir + view_dir);
+    let horizon_fade = smoothstep(-0.1, 0.1, light_dir.y);
+    
+    let spec_factor = pow(max(dot(normal, h), 0.0), shininess);
+    return light.color.xyz * spec_factor * light.color.w * horizon_fade;
 }
 
 fn hash(p: vec3<f32>) -> f32 {
@@ -184,16 +200,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
   var total_specular = vec3<f32>(0.0);
   if (spec_strength > 0.0) {
-      let l1_dir = normalize(lights[0].position - in.world_position);
-      if (dot(in.world_normal, l1_dir) > 0.0) {
-          let h1 = normalize(l1_dir + view_dir);
-          total_specular += lights[0].color.xyz * pow(max(dot(in.world_normal, h1), 0.0), shininess) * lights[0].color.w;
-      }
-      let l2_dir = normalize(lights[1].position - in.world_position);
-      if (dot(in.world_normal, l2_dir) > 0.0) {
-          let h2 = normalize(l2_dir + view_dir);
-          total_specular += lights[1].color.xyz * pow(max(dot(in.world_normal, h2), 0.0), shininess) * lights[1].color.w;
-      }
+      total_specular += specular_color(lights[0], in.world_position, in.world_normal, view_dir, shininess);
+      total_specular += specular_color(lights[1], in.world_position, in.world_normal, view_dir, shininess);
       total_specular *= spec_strength;
   }
 
