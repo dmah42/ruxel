@@ -1,4 +1,6 @@
-#[derive(Debug, Copy, Clone)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum Type {
     Inactive = 0,
     Sand = 1,
@@ -8,7 +10,7 @@ pub enum Type {
     Water = 5,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Block {
     ty: Type,
 }

@@ -43,7 +43,7 @@ pub struct Scene {
 
 impl Scene {
     pub fn new(seed: u32, config: crate::config::Config) -> Self {
-        let chunks = Chunks::new(seed, config.chunk_load_radius);
+        let chunks = Chunks::new(config.active_world.clone(), seed, config.chunk_load_radius);
 
         // TODO: position sun relative to player always.
         let lights = Lights {

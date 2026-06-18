@@ -7,6 +7,8 @@ use std::{
     },
     thread::{self, JoinHandle},
 };
+use serde::{Serialize, Deserialize};
+
 
 use glam::{IVec2, UVec2, Vec3};
 use noise::NoiseFn;
@@ -18,7 +20,7 @@ use crate::{
 
 pub const WATER_LEVEL: f32 = 32.0;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Chunk {
     blocks: [[[Block; 16]; 16]; 16],
     start: Vec3,
@@ -54,7 +56,7 @@ pub struct Chunks {
     loader_tx: Option<Sender<UVec2>>,
 
     load_radius: i32,
-
+    world_name: String,
     terrain: MountainTerrain,
 }
 
@@ -70,7 +72,9 @@ impl Drop for Chunks {
 }
 
 impl Chunks {
-    pub fn new(seed: u32, load_radius: i32) -> Self {
+    pub fn new(world_name: String, seed: u32, load_radius: i32) -> Self {
+        let _ = std::fs::create_dir_all(format!("worlds/{}", world_name));
+
         // TODO: shut these down correctly.
         let (loader_tx, loader_rx) = mpsc::channel();
 
@@ -84,12 +88,13 @@ impl Chunks {
         // Create a thread that will store the loaded chunks when requested.
         let loaded = Arc::new(Mutex::new(HashMap::new()));
         let loaded_clone = Arc::clone(&loaded);
+        let world_name_clone = world_name.clone();
 
         let chunk_loader = thread::Builder::new()
             .name(String::from("chunk loader"))
             .spawn(move || {
                 for key in loader_rx {
-                    let chunks = load_chunks(&terrain_clone, key);
+                    let chunks = load_chunks(&world_name_clone, &terrain_clone, key);
                     log::debug!("completed loading of chunk {key}");
                     loaded_clone
                         .lock()
@@ -109,6 +114,7 @@ impl Chunks {
             loader_tx: Some(loader_tx),
 
             load_radius,
+            world_name,
 
             terrain,
         }
@@ -200,6 +206,11 @@ impl Chunks {
                 if chunk_y < col.len() {
                     col[chunk_y].blocks[lx][ly][lz].set_type(block_type);
                     col[chunk_y].increment_version();
+                    
+                    let path = format!("worlds/{}/chunk_{}_{}.bin", self.world_name, key.x, key.y);
+                    if let Ok(data) = bincode::serialize(col) {
+                        let _ = std::fs::write(&path, data);
+                    }
                 }
             }
 
@@ -282,8 +293,16 @@ impl Chunks {
     }
 }
 
-fn load_chunks(terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
+fn load_chunks(world_name: &str, terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
     log::debug!("loading chunk {key}");
+    let path = format!("worlds/{}/chunk_{}_{}.bin", world_name, key.x, key.y);
+    if let Ok(data) = std::fs::read(&path) {
+        if let Ok(chunks) = bincode::deserialize(&data) {
+            log::debug!("loaded chunk {} from disk", key);
+            return chunks;
+        }
+    }
+
     let mut chunks = Vec::new();
     for chunky in 0..8 {
         let mut chunk = Chunk {

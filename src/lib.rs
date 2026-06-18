@@ -59,7 +59,7 @@ impl Ruxel {
             }
         }
 
-        let seed = config.seed.expect("Seed should always be present after load_or_create");
+        let seed = config.worlds.get(&config.active_world).unwrap().seed.expect("Seed should always be present after load_or_create");
         log::info!("Loaded config: {:?}", config);
         let event_loop = EventLoop::new()?;
         let window = WindowBuilder::new()
