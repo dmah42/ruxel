@@ -2,6 +2,7 @@ struct CameraUniform {
     view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     view_pos: vec4<f32>,
+    water_level: f32,
     fog_start_sq: f32,
     fog_end_sq: f32,
 };

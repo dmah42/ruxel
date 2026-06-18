@@ -16,6 +16,7 @@ use crate::{
     terrain::MountainTerrain,
 };
 
+pub const WATER_LEVEL: f32 = 32.0;
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -301,8 +302,8 @@ fn load_chunks(terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
                     let blocky = (y as u32) + (16 * chunky);
                     let blockz = (z as u32) + (16 * key.y);
                     let point: [f64; 2] = [blockx as f64 / 384.0, blockz as f64 / 384.0];
-                    let height = ((terrain.get(point) + 1.0) * 32.0) as f32;
-                    if (blocky as f32) < 32.0 {
+                    let height = ((terrain.get(point) + 1.0) * WATER_LEVEL as f64) as f32;
+                    if (blocky as f32) < WATER_LEVEL {
                         block.set_type(block::Type::Water);
                     }
                     if (blocky as f32) < height {

@@ -1,6 +1,7 @@
 use std::{f32::consts::FRAC_PI_2, time::Duration};
 
 use bytemuck::{Pod, Zeroable};
+use crate::chunks::WATER_LEVEL;
 use glam::{Mat4, Vec3};
 use winit::{
     dpi::PhysicalPosition,
@@ -21,9 +22,10 @@ pub struct Uniform {
     view_proj: [f32; 16],
     inv_view_proj: [f32; 16],
     view_pos: [f32; 4],
+    water_level: f32,
     fog_start_sq: f32,
     fog_end_sq: f32,
-    _padding: [f32; 2],
+    _padding: f32,
 }
 
 impl Uniform {
@@ -32,9 +34,10 @@ impl Uniform {
             view_proj: *Mat4::IDENTITY.as_ref(),
             inv_view_proj: *Mat4::IDENTITY.as_ref(),
             view_pos: [0.0; 4],
+            water_level: WATER_LEVEL,
             fog_start_sq: 0.0,
             fog_end_sq: 0.0,
-            _padding: [0.0; 2],
+            _padding: 0.0,
         }
     }
 

@@ -56,7 +56,7 @@ impl Scene {
                 // moon
                 Light::new(
                     Vec3::new(0.0, -80.0, 40.0),
-                    wgpu::Color { r: 0.76, g: 0.77, b: 0.80, a: 0.5 },
+                    wgpu::Color { r: 0.76, g: 0.77, b: 0.80, a: 0.25 },
                 ),
             ],
         };
