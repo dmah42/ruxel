@@ -38,9 +38,3 @@ it's written in rust.
     - Graphics settings: shadow quality, anti-aliasing.
 
 ## Tech Debt
-
-- `RenderState` currently acts as a god-object that owns the `Scene` and
-  `Camera`, meaning game logic (like block placement in the `interact` method)
-  lives inside the renderer. This should be refactored so the main `Ruxel`
-  application (or a dedicated game state struct) owns the world state and
-  handles input/interaction, passing references down to the renderer.

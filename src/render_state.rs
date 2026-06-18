@@ -1,19 +1,24 @@
 use std::time::Duration;
 
 use crate::{
+    block::Type,
     camera,
-    camera::{Camera, Projection},
+    camera::Camera,
     scene::Scene,
+    sky::Sky,
     texture::Texture,
     ui::Ui,
     vertex::{SimpleVertex, Vertex},
 };
-use rand::Rng;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
-const REACH_DISTANCE: f32 = 6.0;
+struct ChunkBuffers {
+    vertex_buffer: wgpu::Buffer,
+    opaque_index_buffer: Option<(wgpu::Buffer, u32)>,
+    transparent_index_buffer: Option<(wgpu::Buffer, u32)>,
+}
 
 pub struct RenderState<'window> {
     pub size: winit::dpi::PhysicalSize<u32>,
@@ -30,22 +35,32 @@ pub struct RenderState<'window> {
     selected_block: Option<glam::IVec3>,
 
     ui: Ui,
-    scene: Scene,
 
     depth_texture: Texture,
 
-    camera: Camera,
-    projection: Projection,
     camera_uniform: camera::Uniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
 
     light_bind_group: wgpu::BindGroup,
     wireframe_bind_group: wgpu::BindGroup,
+
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+    wireframe_index_buffer: wgpu::Buffer,
+    wireframe_uniform_buffer: wgpu::Buffer,
+
+    chunk_buffers: std::collections::HashMap<glam::UVec2, Vec<Option<ChunkBuffers>>>,
+    chunk_versions: std::collections::HashMap<glam::UVec2, Vec<u32>>,
+
+    lights_buffer: wgpu::Buffer,
+
+    sky: Sky,
 }
 
 impl RenderState<'static> {
-    pub async fn new(seed: u32, config: crate::config::Config, window: Arc<Window>) -> Self {
+    pub async fn new(_config: crate::config::Config, window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -104,39 +119,33 @@ impl RenderState<'static> {
         let depth_texture = Texture::new_depth_texture(&device, &surface_config, "depth texture");
 
         let ui = Ui::new(&device, &surface_config);
-        let scene = Scene::new(seed, config.clone(), &device);
 
-        let mut rng = rand::thread_rng();
-        let mut playerx = rng.gen_range(2000.0..4000.0);
-        let mut playerz = rng.gen_range(2000.0..4000.0);
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("vertex buffer"),
+            contents: bytemuck::cast_slice(crate::vertex::CUBE_VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
-        while scene
-            .chunks()
-            .height_at(&glam::Vec3::new(playerx, 0.0, playerz))
-            <= 32.0
-        {
-            playerx = rng.gen_range(2000.0..4000.0);
-            playerz = rng.gen_range(2000.0..4000.0);
-        }
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("index buffer"),
+            contents: bytemuck::cast_slice(crate::vertex::CUBE_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let num_indices = crate::vertex::CUBE_INDICES.len() as u32;
 
-        let spawn_height = scene
-            .chunks()
-            .height_at(&glam::Vec3::new(playerx, 0.0, playerz));
-        let camera = Camera::new(
-            glam::Vec3::new(playerx, spawn_height + 5.0, playerz),
-            0.0,
-            0.0,
-        );
+        let wireframe_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("wireframe index buffer"),
+            contents: bytemuck::cast_slice(crate::vertex::WIREFRAME_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
 
-        let projection = Projection::new(
-            surface_config.width as f32 / surface_config.height as f32,
-            75.0_f32.to_radians(),
-            0.1,
-            1000.0,
-        );
+        let wireframe_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("wireframe uniform buffer"),
+            contents: bytemuck::cast_slice(&[[0.0f32; 4]]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
-        let mut camera_uniform = camera::Uniform::new();
-        camera_uniform.update_view_proj(&camera, &projection, config.chunk_load_radius);
+        let camera_uniform = camera::Uniform::new();
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("camera buffer"),
@@ -193,16 +202,26 @@ impl RenderState<'static> {
                     },
                 ],
             });
+        let sky = Sky::new(&device);
+
+        // Dummy lights initialization. The actual lights will be written during update.
+        let dummy_lights = crate::scene::Lights::empty();
+        let lights_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("lights buffer"),
+            contents: bytemuck::cast_slice(&[dummy_lights.to_raw()]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &light_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: scene.sky().buffer().as_entire_binding(),
+                    resource: sky.buffer().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: scene.lights_buffer().as_entire_binding(),
+                    resource: lights_buffer.as_entire_binding(),
                 },
             ],
             label: Some("light bind group"),
@@ -228,7 +247,7 @@ impl RenderState<'static> {
             layout: &wireframe_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: scene.wireframe_uniform_buffer().as_entire_binding(),
+                resource: wireframe_uniform_buffer.as_entire_binding(),
             }],
         });
 
@@ -353,62 +372,46 @@ impl RenderState<'static> {
             moon_render_pipeline,
             sky_render_pipeline,
             wireframe_pipeline,
+            chunk_buffers: std::collections::HashMap::new(),
+            chunk_versions: std::collections::HashMap::new(),
+
+            lights_buffer,
+            sky,
+
             selected_block: None,
             ui,
-            scene,
             depth_texture,
-            camera,
-            projection,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
             light_bind_group,
             wireframe_bind_group,
+            vertex_buffer,
+            index_buffer,
+            num_indices,
+            wireframe_index_buffer,
+            wireframe_uniform_buffer,
         }
     }
 
-    pub fn camera(&mut self) -> &mut Camera {
-        &mut self.camera
-    }
-
-    pub fn update_physics(&mut self, dt: Duration) {
-        self.camera.update_physics(self.scene.chunks(), dt);
-    }
-
-    pub fn interact(&mut self, place: bool, block_type: crate::block::Type) {
-        if let Some((hit_pos, normal)) = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE) {
-            if place {
-                let p = hit_pos + normal;
-                self.scene.chunks().set_block(p.x, p.y, p.z, block_type);
-            } else {
-                self.scene.chunks().set_block(
-                    hit_pos.x,
-                    hit_pos.y,
-                    hit_pos.z,
-                    crate::block::Type::Inactive,
-                );
-            }
-        }
-    }
-
-    pub fn update(&mut self, dt: Duration, selected_block_type: crate::block::Type) {
+    pub fn update(&mut self, dt: Duration, camera: &Camera, scene: &Scene, selected_block: Option<glam::IVec3>, selected_block_type: Type) {
         self.ui.update(
-            &self.camera.position(),
-            self.scene.chunks().block_position(),
-            self.scene.chunks().chunk_position(),
+            &camera.position(),
+            scene.chunks().block_position(),
+            scene.chunks().chunk_position(),
             selected_block_type,
             dt,
         );
-        self.scene.update(dt, &self.camera.position(), &self.device);
 
-        self.selected_block = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE).map(|(pos, _)| pos);
+        self.update_chunk_buffers(scene);
+
+        self.selected_block = selected_block;
         if let Some(pos) = self.selected_block {
             let offset = [pos.x as f32, pos.y as f32, pos.z as f32, 0.0f32];
-            self.queue.write_buffer(self.scene.wireframe_uniform_buffer(), 0, bytemuck::cast_slice(&[offset]));
+            self.queue.write_buffer(&self.wireframe_uniform_buffer, 0, bytemuck::cast_slice(&[offset]));
         }
 
-        self.camera_uniform
-            .update_view_proj(&self.camera, &self.projection, self.scene.chunks().load_radius());
+        self.camera_uniform.update_view_proj(camera, scene.chunks().load_radius());
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -416,16 +419,92 @@ impl RenderState<'static> {
         );
 
         self.queue.write_buffer(
-            self.scene.lights_buffer(),
+            &self.lights_buffer,
             0,
-            bytemuck::cast_slice(&[self.scene.lights().to_raw()]),
+            bytemuck::cast_slice(&[scene.lights().to_raw()]),
         );
 
+        self.sky.update(dt, &scene.sun_offset());
         self.queue.write_buffer(
-            self.scene.sky().buffer(),
+            self.sky.buffer(),
             0,
-            bytemuck::cast_slice(&[self.scene.sky().to_raw(self.config.format.is_srgb())]),
+            bytemuck::cast_slice(&[self.sky.to_raw(self.config.format.is_srgb())]),
         );
+    }
+
+    fn update_chunk_buffers(&mut self, scene: &Scene) {
+        let loaded = scene.chunks().loaded();
+        let locked_loaded = loaded.lock().expect("");
+
+        // Remove buffers for chunks that are no longer loaded
+        self.chunk_buffers.retain(|key, _| locked_loaded.contains_key(key));
+        self.chunk_versions.retain(|key, _| locked_loaded.contains_key(key));
+
+        let terrain = scene.chunks().terrain().clone();
+
+        let mut dirty_chunks = Vec::new();
+        for (key, chunks) in locked_loaded.iter() {
+            let versions = self.chunk_versions.entry(*key).or_insert_with(|| vec![0; chunks.len()]);
+            for (i, chunk) in chunks.iter().enumerate() {
+                if versions[i] != chunk.version() {
+                    dirty_chunks.push((*key, i, chunk.version()));
+                }
+            }
+        }
+
+        let mut new_meshes = Vec::new();
+        for (key, i, version) in dirty_chunks {
+            let chunk = &locked_loaded.get(&key).unwrap()[i];
+            let mesh = crate::mesh::ChunkMesh::build(chunk, &locked_loaded, &terrain);
+            new_meshes.push((key, i, version, mesh));
+        }
+
+        for (key, i, version, mesh) in new_meshes {
+            let col_buffers = self.chunk_buffers.entry(key).or_insert_with(|| (0..locked_loaded.get(&key).unwrap().len()).map(|_| None).collect());
+            let col_versions = self.chunk_versions.entry(key).or_insert_with(|| vec![0; locked_loaded.get(&key).unwrap().len()]);
+            
+            let opaque_indices = mesh.opaque_indices();
+            let transparent_indices = mesh.transparent_indices();
+
+            if opaque_indices.is_empty() && transparent_indices.is_empty() {
+                col_buffers[i] = None;
+            } else {
+                let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("chunk vertex buffer"),
+                    contents: bytemuck::cast_slice(mesh.vertices()),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+                let opaque_index_buffer = if !opaque_indices.is_empty() {
+                    let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("chunk opaque index buffer"),
+                        contents: bytemuck::cast_slice(opaque_indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
+                    Some((buf, opaque_indices.len() as u32))
+                } else {
+                    None
+                };
+
+                let transparent_index_buffer = if !transparent_indices.is_empty() {
+                    let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("chunk transparent index buffer"),
+                        contents: bytemuck::cast_slice(transparent_indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
+                    Some((buf, transparent_indices.len() as u32))
+                } else {
+                    None
+                };
+
+                col_buffers[i] = Some(ChunkBuffers {
+                    vertex_buffer,
+                    opaque_index_buffer,
+                    transparent_index_buffer,
+                });
+            }
+            col_versions[i] = version;
+        }
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -436,7 +515,6 @@ impl RenderState<'static> {
             self.surface.configure(&self.device, &self.config);
             self.depth_texture =
                 Texture::new_depth_texture(&self.device, &self.config, "depth buffer");
-            self.projection.resize(new_size.width, new_size.height);
             self.ui.resize(new_size, &self.queue);
         }
     }
@@ -459,7 +537,7 @@ impl RenderState<'static> {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.scene.sky().color()),
+                        load: wgpu::LoadOp::Clear(self.sky.color()),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -480,24 +558,24 @@ impl RenderState<'static> {
                 render_pass.set_pipeline(&self.sun_render_pipeline);
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.scene.vertex_buffer().slice(..));
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
-                    self.scene.index_buffer().slice(..),
+                    self.index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
                 );
-                render_pass.draw_indexed(0..self.scene.num_indices(), 0, 0..1);
+                render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
             }
             // draw moon
             {
                 render_pass.set_pipeline(&self.moon_render_pipeline);
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.scene.vertex_buffer().slice(..));
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
-                    self.scene.index_buffer().slice(..),
+                    self.index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
                 );
-                render_pass.draw_indexed(0..self.scene.num_indices(), 0, 0..1);
+                render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
             }
 
             // draw landscape
@@ -506,7 +584,7 @@ impl RenderState<'static> {
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
 
-                for chunk_col in self.scene.chunk_buffers().values() {
+                for chunk_col in self.chunk_buffers.values() {
                     for chunk in chunk_col.iter().flatten() {
                         if let Some((index_buf, num_indices)) = &chunk.opaque_index_buffer {
                             render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
@@ -532,7 +610,7 @@ impl RenderState<'static> {
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
 
-                for chunk_col in self.scene.chunk_buffers().values() {
+                for chunk_col in self.chunk_buffers.values() {
                     for chunk in chunk_col.iter().flatten() {
                         if let Some((index_buf, num_indices)) = &chunk.transparent_index_buffer {
                             render_pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
@@ -549,8 +627,8 @@ impl RenderState<'static> {
                 render_pass.set_pipeline(&self.wireframe_pipeline);
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.wireframe_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.scene.vertex_buffer().slice(..));
-                render_pass.set_index_buffer(self.scene.wireframe_index_buffer().slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(self.wireframe_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..24, 0, 0..1);
             }
         }

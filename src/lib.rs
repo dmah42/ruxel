@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use render_state::RenderState;
 use std::sync::Arc;
+use rand::Rng;
 use winit::{
     dpi::PhysicalSize,
     event::*,
@@ -23,6 +24,8 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
     window::{CursorGrabMode, Window, WindowBuilder},
 };
+
+const REACH_DISTANCE: f32 = 6.0;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -33,6 +36,8 @@ pub struct Ruxel {
     event_loop: Option<EventLoop<()>>,
     window: Arc<Window>,
     state: RenderState<'static>,
+    scene: scene::Scene,
+    camera: camera::Camera,
     camera_controller: camera::Controller,
     mouse_pressed: bool,
     mouse_grabbed: bool,
@@ -82,13 +87,49 @@ impl Ruxel {
                 .expect("failed to add canvas to document body");
         }
 
-        let state = RenderState::new(seed, config, window.clone()).await;
+        let scene = scene::Scene::new(seed, config.clone());
+
+        let mut rng = rand::thread_rng();
+        let mut playerx = rng.gen_range(2000.0..4000.0);
+        let mut playerz = rng.gen_range(2000.0..4000.0);
+
+        while scene
+            .chunks()
+            .height_at(&glam::Vec3::new(playerx, 0.0, playerz))
+            <= 32.0
+        {
+            playerx = rng.gen_range(2000.0..4000.0);
+            playerz = rng.gen_range(2000.0..4000.0);
+        }
+
+        let spawn_height = scene
+            .chunks()
+            .height_at(&glam::Vec3::new(playerx, 0.0, playerz));
+
+        let size = window.inner_size();
+        let projection = camera::Projection::new(
+            size.width as f32 / size.height as f32,
+            75.0_f32.to_radians(),
+            0.1,
+            1000.0,
+        );
+
+        let camera = camera::Camera::new(
+            glam::Vec3::new(playerx, spawn_height + 5.0, playerz),
+            0.0,
+            0.0,
+            projection,
+        );
+
+        let state = RenderState::new(config, window.clone()).await;
 
         Ok(Self {
             event_loop: Some(event_loop),
             window,
             state,
-            camera_controller: camera::Controller::new(4.0, 0.4),
+            scene,
+            camera,
+            camera_controller: camera::Controller::new(),
             mouse_pressed: false,
             mouse_grabbed: false,
             received_mouse_motion: false,
@@ -113,6 +154,22 @@ impl Ruxel {
         let _ = self.window.set_cursor_grab(CursorGrabMode::None);
         self.window.set_cursor_visible(true);
         self.mouse_grabbed = false;
+    }
+
+    fn interact(&mut self, place: bool, block_type: crate::block::Type) {
+        if let Some((hit_pos, normal)) = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE) {
+            if place {
+                let p = hit_pos + normal;
+                self.scene.chunks().set_block(p.x, p.y, p.z, block_type);
+            } else {
+                self.scene.chunks().set_block(
+                    hit_pos.x,
+                    hit_pos.y,
+                    hit_pos.z,
+                    crate::block::Type::Inactive,
+                );
+            }
+        }
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -152,7 +209,7 @@ impl Ruxel {
                     if !self.mouse_grabbed {
                         self.grab_mouse();
                     } else {
-                        self.state.interact(false, self.selected_block_type);
+                        self.interact(false, self.selected_block_type);
                     }
                 }
                 self.mouse_pressed = pressed;
@@ -166,7 +223,7 @@ impl Ruxel {
                 if !self.mouse_grabbed {
                     self.grab_mouse();
                 } else {
-                    self.state.interact(true, self.selected_block_type);
+                    self.interact(true, self.selected_block_type);
                 }
                 true
             }
@@ -175,13 +232,12 @@ impl Ruxel {
     }
 
     fn update(&mut self, dt: Duration, selected_block_type: block::Type) {
-        self.camera_controller
-            .update_camera(self.state.camera(), dt);
-        {
-            // update player physics
-            self.state.update_physics(dt);
-        }
-        self.state.update(dt, selected_block_type);
+        self.camera_controller.update_camera(&mut self.camera, dt);
+        self.camera.update_physics(self.scene.chunks(), dt);
+        self.scene.update(dt, &self.camera.position());
+        
+        let selected_block = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE).map(|(pos, _)| pos);
+        self.state.update(dt, &self.camera, &self.scene, selected_block, selected_block_type);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
@@ -262,6 +318,9 @@ impl Ruxel {
                         }
                     }
                     WindowEvent::Resized(physical_size) => {
+                        if physical_size.width > 0 && physical_size.height > 0 {
+                            self.camera.projection.resize(physical_size.width, physical_size.height);
+                        }
                         self.state.resize(*physical_size);
                     }
                     WindowEvent::CursorMoved { position, .. } => {

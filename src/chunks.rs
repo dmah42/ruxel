@@ -21,8 +21,7 @@ use crate::{
 pub struct Chunk {
     blocks: [[[Block; 16]; 16]; 16],
     start: Vec3,
-    mesh: Option<crate::mesh::ChunkMesh>,
-    dirty: bool,
+    version: u32,
 }
 
 impl Chunk {
@@ -34,20 +33,12 @@ impl Chunk {
         self.start
     }
 
-    pub fn dirty(&self) -> bool {
-        self.dirty
+    pub fn version(&self) -> u32 {
+        self.version
     }
 
-    pub fn clean(&mut self) {
-        self.dirty = false
-    }
-
-    pub fn take_mesh(&mut self) -> Option<crate::mesh::ChunkMesh> {
-        self.mesh.take()
-    }
-
-    pub fn set_mesh(&mut self, mesh: crate::mesh::ChunkMesh) {
-        self.mesh = Some(mesh);
+    fn increment_version(&mut self) {
+        self.version = self.version.wrapping_add(1);
     }
 }
 
@@ -210,7 +201,7 @@ impl Chunks {
             if let Some(col) = loaded.get_mut(&key) {
                 if chunk_y < col.len() {
                     col[chunk_y].blocks[lx][ly][lz].set_type(block_type);
-                    col[chunk_y].dirty = true;
+                    col[chunk_y].increment_version();
                 }
             }
 
@@ -242,7 +233,7 @@ impl Chunks {
                                     let nlz = (nz as usize) % 16;
 
                                     if n_col[ncy].blocks()[nlx][nly][nlz].is_active() {
-                                        n_col[ncy].dirty = true;
+                                        n_col[ncy].increment_version();
                                     }
                                 }
                             }
@@ -304,8 +295,7 @@ fn load_chunks(terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
                 16.0 * (chunky as f32),
                 16.0 * (key.y as f32),
             ),
-            mesh: None,
-            dirty: false,
+            version: 1,
         };
         for (x, row) in chunk.blocks.iter_mut().enumerate() {
             for (y, col) in row.iter_mut().enumerate() {
@@ -329,7 +319,6 @@ fn load_chunks(terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
                 }
             }
         }
-        chunk.mesh = Some(crate::mesh::ChunkMesh::build(&chunk, &std::collections::HashMap::new(), terrain));
         chunks.push(chunk);
     }
     chunks

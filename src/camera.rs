@@ -11,6 +11,8 @@ use winit::{
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.001;
 const GRAVITY: f32 = 25.0;
 const PLAYER_HEIGHT: f32 = 2.6;
+const SPEED: f32 = 4.0;
+const SENSITIVITY: f32 = 0.4;
 const JUMP_VELOCITY: f32 = 10.0;
 
 #[repr(C)]
@@ -36,8 +38,8 @@ impl Uniform {
         }
     }
 
-    pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection, load_radius: i32) {
-        let vp = projection.matrix() * camera.matrix();
+    pub fn update_view_proj(&mut self, camera: &Camera, load_radius: i32) {
+        let vp = camera.projection.matrix() * camera.matrix();
         self.view_proj = *vp.as_ref();
         self.inv_view_proj = *vp.inverse().as_ref();
         let visual_pos = camera.visual_position();
@@ -84,16 +86,18 @@ pub struct Camera {
     pitch: f32,
     velocity: Vec3,
     step_offset: f32,
+    pub projection: Projection,
 }
 
 impl Camera {
-    pub fn new(position: Vec3, yaw: f32, pitch: f32) -> Self {
+    pub fn new(position: Vec3, yaw: f32, pitch: f32, projection: Projection) -> Self {
         Self {
             position,
             yaw,
             pitch,
             velocity: Vec3::ZERO,
             step_offset: 0.0,
+            projection,
         }
     }
 
@@ -331,7 +335,7 @@ pub struct Controller {
 }
 
 impl Controller {
-    pub fn new(speed: f32, sensitivity: f32) -> Self {
+    pub fn new() -> Self {
         Self {
             amount_left: 0.0,
             amount_right: 0.0,
@@ -349,8 +353,8 @@ impl Controller {
             rotate_vert: 0.0,
             scroll: 0.0,
 
-            speed,
-            sensitivity,
+            speed: SPEED,
+            sensitivity: SENSITIVITY,
         }
     }
 
