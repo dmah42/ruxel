@@ -411,7 +411,7 @@ impl RenderState<'static> {
             self.queue.write_buffer(&self.wireframe_uniform_buffer, 0, bytemuck::cast_slice(&[offset]));
         }
 
-        self.camera_uniform.update_view_proj(camera, scene.chunks().load_radius());
+        self.camera_uniform.update_view_proj(camera);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,

@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::{
+    camera::Camera,
     chunks::Chunks,
     light::{Light, RawLight},
 };
@@ -80,15 +81,22 @@ impl Scene {
         &self.lights
     }
 
-    pub fn update(&mut self, dt: Duration, player_position: &Vec3) {
-        self.chunks.update(player_position);
+    pub fn update(&mut self, dt: Duration, camera: &Camera) {
+        let player_position = camera.position();
+        self.chunks.update(&player_position);
+
+        let orbit_radius = camera.fog_end * 1.1;
 
         // move the sun and moon
         // TODO: precess slowly around Z too
         self.sun_offset = Quat::from_axis_angle(Vec3::Z, 0.02 * dt.as_secs_f32()) * self.sun_offset;
         self.moon_offset =
             Quat::from_axis_angle(Vec3::Z, 0.04 * dt.as_secs_f32()) * self.moon_offset;
-        self.lights.lights[0].position = *player_position + self.sun_offset;
-        self.lights.lights[1].position = *player_position + self.moon_offset;
+            
+        let current_sun_offset = self.sun_offset.normalize_or_zero() * orbit_radius;
+        let current_moon_offset = self.moon_offset.normalize_or_zero() * orbit_radius;
+            
+        self.lights.lights[0].position = player_position + current_sun_offset;
+        self.lights.lights[1].position = player_position + current_moon_offset;
     }
 }

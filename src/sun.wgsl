@@ -28,7 +28,8 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(model: VertexInput) -> VertexOutput {
-  let scale = 2.0;
+  let dist = length(lights.lights[0].position - camera.view_pos.xyz);
+  let scale = dist / 50.0;
   var out: VertexOutput;
   out.clip_position = camera.view_proj * vec4<f32>(model.position * scale + lights.lights[0].position, 1.0);
   out.color = vec4<f32>(lights.lights[0].color.xyz, 1.0);

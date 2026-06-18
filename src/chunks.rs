@@ -113,9 +113,6 @@ impl Chunks {
         }
     }
 
-    pub fn load_radius(&self) -> i32 {
-        self.load_radius
-    }
 
     pub fn block_position(&self) -> &IVec2 {
         &self.block_position

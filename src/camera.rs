@@ -38,17 +38,15 @@ impl Uniform {
         }
     }
 
-    pub fn update_view_proj(&mut self, camera: &Camera, load_radius: i32) {
+    pub fn update_view_proj(&mut self, camera: &Camera) {
         let vp = camera.projection.matrix() * camera.matrix();
         self.view_proj = *vp.as_ref();
         self.inv_view_proj = *vp.inverse().as_ref();
         let visual_pos = camera.visual_position();
         self.view_pos = [visual_pos.x, visual_pos.y, visual_pos.z, 1.0];
 
-        let fog_start = (load_radius as f32 - 0.5) * 16.0;
-        let fog_end = load_radius as f32 * 16.0;
-        self.fog_start_sq = fog_start * fog_start;
-        self.fog_end_sq = fog_end * fog_end;
+        self.fog_start_sq = camera.fog_start * camera.fog_start;
+        self.fog_end_sq = camera.fog_end * camera.fog_end;
     }
 }
 
@@ -87,10 +85,15 @@ pub struct Camera {
     velocity: Vec3,
     step_offset: f32,
     pub projection: Projection,
+    pub fog_start: f32,
+    pub fog_end: f32,
 }
 
 impl Camera {
-    pub fn new(position: Vec3, yaw: f32, pitch: f32, projection: Projection) -> Self {
+    pub fn new(position: Vec3, yaw: f32, pitch: f32, aspect: f32, fov: f32, load_radius: i32) -> Self {
+        let fog_start = (load_radius as f32 - 0.5) * 16.0;
+        let fog_end = load_radius as f32 * 16.0;
+        let projection = Projection::new(aspect, fov.to_radians(), 0.1, fog_end * 1.5);
         Self {
             position,
             yaw,
@@ -98,6 +101,8 @@ impl Camera {
             velocity: Vec3::ZERO,
             step_offset: 0.0,
             projection,
+            fog_start,
+            fog_end,
         }
     }
 

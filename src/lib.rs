@@ -107,18 +107,15 @@ impl Ruxel {
             .height_at(&glam::Vec3::new(playerx, 0.0, playerz));
 
         let size = window.inner_size();
-        let projection = camera::Projection::new(
-            size.width as f32 / size.height as f32,
-            75.0_f32.to_radians(),
-            0.1,
-            1000.0,
-        );
+        let aspect = size.width as f32 / size.height as f32;
 
         let camera = camera::Camera::new(
             glam::Vec3::new(playerx, spawn_height + 5.0, playerz),
             0.0,
             0.0,
-            projection,
+            aspect,
+            config.fov,
+            config.chunk_load_radius,
         );
 
         let state = RenderState::new(config, window.clone()).await;
@@ -234,7 +231,7 @@ impl Ruxel {
     fn update(&mut self, dt: Duration, selected_block_type: block::Type) {
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera.update_physics(self.scene.chunks(), dt);
-        self.scene.update(dt, &self.camera.position());
+        self.scene.update(dt, &self.camera);
         
         let selected_block = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE).map(|(pos, _)| pos);
         self.state.update(dt, &self.camera, &self.scene, selected_block, selected_block_type);

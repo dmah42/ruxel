@@ -7,6 +7,7 @@ pub struct Config {
     pub chunk_load_radius: i32,
     pub seed: Option<u32>,
     pub log_level: String,
+    pub fov: f32,
 }
 
 impl Default for Config {
@@ -15,6 +16,7 @@ impl Default for Config {
             chunk_load_radius: 3,
             seed: None,
             log_level: "warn".to_string(),
+            fov: 75.0,
         }
     }
 }
