@@ -119,6 +119,14 @@ impl Camera {
         p
     }
 
+    pub fn save_state(&self, config: &mut crate::config::WorldConfig) {
+        config.camera = Some(crate::config::CameraConfig {
+            position: [self.position.x, self.position.y, self.position.z],
+            yaw: self.yaw,
+            pitch: self.pitch,
+        });
+    }
+
     pub fn forward(&self) -> Vec3 {
         let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();

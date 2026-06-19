@@ -5,7 +5,6 @@ it's written in rust.
 
 ## Bugs
 
-- we don't save the player position/direction.
 - underwater fog is glowing almost white at night.. i think maybe a sky colour
   issue?
 

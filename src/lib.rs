@@ -44,11 +44,13 @@ pub struct Ruxel {
     received_mouse_motion: bool,
     last_cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
     selected_block_type: block::Type,
+    config: config::Config,
+    last_save_time: Instant,
 }
 
 impl Ruxel {
     pub async fn new() -> Result<Self, winit::error::EventLoopError> {
-        let config = crate::config::Config::load_or_create();
+        let config = config::Config::load_or_create();
 
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
@@ -89,36 +91,35 @@ impl Ruxel {
 
         let scene = scene::Scene::new(seed, config.clone());
 
-        let mut rng = rand::thread_rng();
-        let mut playerx = rng.gen_range(2000.0..4000.0);
-        let mut playerz = rng.gen_range(2000.0..4000.0);
+        let (player_x, player_y, player_z, yaw, pitch) = if let Some(cam) = config.worlds.get(&config.active_world).and_then(|w| w.camera.as_ref()) {
+            (cam.position[0], cam.position[1], cam.position[2], cam.yaw, cam.pitch)
+        } else {
+            let mut rng = rand::thread_rng();
+            let mut px = rng.gen_range(2000.0..4000.0);
+            let mut pz = rng.gen_range(2000.0..4000.0);
 
-        while scene
-            .chunks()
-            .height_at(&glam::Vec3::new(playerx, 0.0, playerz))
-            <= 32.0
-        {
-            playerx = rng.gen_range(2000.0..4000.0);
-            playerz = rng.gen_range(2000.0..4000.0);
-        }
+            while scene.chunks().height_at(&glam::Vec3::new(px, 0.0, pz)) <= 32.0 {
+                px = rng.gen_range(2000.0..4000.0);
+                pz = rng.gen_range(2000.0..4000.0);
+            }
 
-        let spawn_height = scene
-            .chunks()
-            .height_at(&glam::Vec3::new(playerx, 0.0, playerz));
+            let spawn_height = scene.chunks().height_at(&glam::Vec3::new(px, 0.0, pz));
+            (px, spawn_height + 5.0, pz, 0.0, 0.0)
+        };
 
         let size = window.inner_size();
         let aspect = size.width as f32 / size.height as f32;
 
         let camera = camera::Camera::new(
-            glam::Vec3::new(playerx, spawn_height + 5.0, playerz),
-            0.0,
-            0.0,
+            glam::Vec3::new(player_x, player_y, player_z),
+            yaw,
+            pitch,
             aspect,
             config.fov,
             config.chunk_load_radius,
         );
 
-        let state = RenderState::new(config, window.clone()).await;
+        let state = RenderState::new(config.clone(), window.clone()).await;
 
         Ok(Self {
             event_loop: Some(event_loop),
@@ -132,6 +133,8 @@ impl Ruxel {
             received_mouse_motion: false,
             last_cursor_pos: None,
             selected_block_type: block::Type::Grass,
+            config,
+            last_save_time: Instant::now(),
         })
     }
 
@@ -235,6 +238,18 @@ impl Ruxel {
         
         let selected_block = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE).map(|(pos, _)| pos);
         self.state.update(dt, &self.camera, &self.scene, selected_block, selected_block_type);
+
+        if self.last_save_time.elapsed() > Duration::from_secs(5) {
+            self.save_config();
+        }
+    }
+
+    fn save_config(&mut self) {
+        if let Some(world_config) = self.config.worlds.get_mut(&self.config.active_world) {
+            self.camera.save_state(world_config);
+        }
+        self.config.save();
+        self.last_save_time = Instant::now();
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
@@ -267,6 +282,7 @@ impl Ruxel {
                         Err(wgpu::SurfaceError::Lost) => self.state.resize(self.state.size),
                         Err(wgpu::SurfaceError::OutOfMemory) => {
                             println!("out of memory");
+                            self.save_config();
                             control_flow.exit();
                         }
                         Err(e) => eprintln!("{:?}", e),
@@ -290,7 +306,10 @@ impl Ruxel {
                     window_id,
                 } if window_id == self.window.id() && !self.input(event) => match event {
                     #[cfg(not(target_arch = "wasm32"))]
-                    WindowEvent::CloseRequested => control_flow.exit(),
+                    WindowEvent::CloseRequested => {
+                        self.save_config();
+                        control_flow.exit();
+                    }
                     WindowEvent::KeyboardInput {
                         event:
                             KeyEvent {
@@ -303,6 +322,7 @@ impl Ruxel {
                         if self.mouse_grabbed {
                             self.ungrab_mouse();
                         } else {
+                            self.save_config();
                             control_flow.exit();
                         }
                     }

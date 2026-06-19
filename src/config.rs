@@ -4,8 +4,16 @@ use std::fs;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CameraConfig {
+    pub position: [f32; 3],
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldConfig {
     pub seed: Option<u32>,
+    pub camera: Option<CameraConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,7 +31,7 @@ impl Default for Config {
         let mut worlds = HashMap::new();
         worlds.insert(
             "funky_town".to_string(),
-            WorldConfig { seed: None },
+            WorldConfig { seed: None, camera: None },
         );
 
         Self {
@@ -55,7 +63,7 @@ impl Config {
         // Ensure the active world exists in the map
         let world_config = config.worlds.entry(config.active_world.clone()).or_insert_with(|| {
             needs_save = true;
-            WorldConfig { seed: None }
+            WorldConfig { seed: None, camera: None }
         });
 
         if world_config.seed.is_none() {
@@ -65,13 +73,17 @@ impl Config {
         }
 
         if needs_save {
-            if let Ok(toml_string) = toml::to_string(&config) {
-                if let Err(e) = fs::write(config_path, toml_string) {
-                    eprintln!("Failed to write config.toml: {}", e);
-                }
-            }
+            config.save()
         }
 
         config
+    }
+
+    pub fn save(&self) {
+        if let Ok(toml_string) = toml::to_string(self) {
+            if let Err(e) = fs::write("config.toml", toml_string) {
+                eprintln!("Failed to write config.toml: {}", e);
+            }
+        }
     }
 }
