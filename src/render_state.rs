@@ -395,11 +395,16 @@ impl RenderState<'static> {
     }
 
     pub fn update(&mut self, dt: Duration, camera: &Camera, scene: &Scene, selected_block: Option<glam::IVec3>, selected_block_type: Type) {
+        let player_pos = camera.position();
+        let point = [player_pos.x as f64 / 384.0, player_pos.z as f64 / 384.0];
+        let blend_str = scene.chunks().terrain().biome_blend_string(point);
+
         self.ui.update(
-            &camera.position(),
+            &player_pos,
             scene.chunks().block_position(),
             scene.chunks().chunk_position(),
             selected_block_type,
+            blend_str,
             dt,
         );
 

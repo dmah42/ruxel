@@ -1,3 +1,8 @@
+use crate::{
+    block::{self, Block},
+    terrain::{WorldTerrain, Biome},
+};
+use glam::{IVec2, UVec2, Vec3};
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
@@ -8,15 +13,6 @@ use std::{
     thread::{self, JoinHandle},
 };
 use serde::{Serialize, Deserialize};
-
-
-use glam::{IVec2, UVec2, Vec3};
-use noise::NoiseFn;
-
-use crate::{
-    block::{self, Block},
-    terrain::MountainTerrain,
-};
 
 pub const WATER_LEVEL: f32 = 32.0;
 
@@ -57,7 +53,7 @@ pub struct Chunks {
 
     load_radius: i32,
     world_name: String,
-    terrain: MountainTerrain,
+    terrain: WorldTerrain,
 }
 
 impl Drop for Chunks {
@@ -78,7 +74,7 @@ impl Chunks {
         // TODO: shut these down correctly.
         let (loader_tx, loader_rx) = mpsc::channel();
 
-        let terrain = MountainTerrain::new(seed);
+        let terrain = WorldTerrain::new(seed);
         let terrain_clone = terrain.clone();
 
         // Create a thread that will load chunks when requested.
@@ -184,7 +180,7 @@ impl Chunks {
 
     pub fn height_at(&self, position: &Vec3) -> f32 {
         let point: [f64; 2] = [position.x as f64 / 384.0, position.z as f64 / 384.0];
-        ((self.terrain.get(point) + 1.0) * 32.0) as f32
+        self.terrain.get(point).0 as f32
     }
 
     pub fn set_block(&self, x: i32, y: i32, z: i32, block_type: block::Type) {
@@ -288,12 +284,12 @@ impl Chunks {
         false
     }
 
-    pub fn terrain(&self) -> &MountainTerrain {
+    pub fn terrain(&self) -> &WorldTerrain {
         &self.terrain
     }
 }
 
-fn load_chunks(world_name: &str, terrain: &MountainTerrain, key: UVec2) -> Vec<Chunk> {
+fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chunk> {
     log::debug!("loading chunk {key}");
     let path = format!("worlds/{}/chunk_{}_{}.bin", world_name, key.x, key.y);
     if let Ok(data) = std::fs::read(&path) {
@@ -304,7 +300,7 @@ fn load_chunks(world_name: &str, terrain: &MountainTerrain, key: UVec2) -> Vec<C
     }
 
     let mut chunks = Vec::new();
-    for chunky in 0..8 {
+    for chunky in 0..16 {
         let mut chunk = Chunk {
             blocks: [[[Block::new(); 16]; 16]; 16],
             start: Vec3::new(
@@ -321,17 +317,43 @@ fn load_chunks(world_name: &str, terrain: &MountainTerrain, key: UVec2) -> Vec<C
                     let blocky = (y as u32) + (16 * chunky);
                     let blockz = (z as u32) + (16 * key.y);
                     let point: [f64; 2] = [blockx as f64 / 384.0, blockz as f64 / 384.0];
-                    let height = ((terrain.get(point) + 1.0) * WATER_LEVEL as f64) as f32;
-                    if (blocky as f32) < WATER_LEVEL {
+                    let (height_f64, biome) = terrain.get(point);
+                    let height = height_f64 as f32;
+                    
+                    if (blocky as f32) < WATER_LEVEL && (blocky as f32) >= height {
                         block.set_type(block::Type::Water);
-                    }
-                    if (blocky as f32) < height {
-                        block.set_type(match blocky {
-                            0..=35 => block::Type::Sand,
-                            36..=48 => block::Type::Grass,
-                            49..=55 => block::Type::Rock,
-                            56.. => block::Type::Ice,
-                        });
+                    } else if (blocky as f32) < height {
+                        let hash = (blockx.wrapping_mul(31) ^ blocky.wrapping_mul(17) ^ blockz.wrapping_mul(23)) % 10;
+                        let dither = (hash as f32) - 5.0;
+                        
+                        let btype = match biome {
+                            Biome::Desert => {
+                                if (blocky as f32) > height - 4.0 + (dither * 0.5) { block::Type::Sand }
+                                else { block::Type::Rock }
+                            },
+                            Biome::Ocean => {
+                                if (blocky as f32) > height - 2.0 + (dither * 0.5) { block::Type::Sand }
+                                else { block::Type::Rock }
+                            },
+                            Biome::Plains | Biome::Hills => {
+                                if (blocky as f32) > height - 1.0 {
+                                    if height < WATER_LEVEL { block::Type::Sand }
+                                    else { block::Type::Grass }
+                                }
+                                else if (blocky as f32) > height - 4.0 + dither { block::Type::Sand }
+                                else { block::Type::Rock }
+                            },
+                            Biome::Mountains => {
+                                if blocky as f32 > 95.0 + dither { block::Type::Ice }
+                                else if blocky as f32 > 65.0 + dither { block::Type::Rock }
+                                else if (blocky as f32) > height - 1.0 {
+                                    if height < WATER_LEVEL { block::Type::Sand }
+                                    else { block::Type::Grass }
+                                }
+                                else { block::Type::Rock }
+                            }
+                        };
+                        block.set_type(btype);
                     }
                 }
             }

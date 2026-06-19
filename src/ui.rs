@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use crate::block;
 use glam::{IVec2, Vec2, Vec3};
 use wgpu::{Device, Queue, SurfaceConfiguration};
 use wgpu_text::{
@@ -18,6 +19,7 @@ pub struct Ui {
     total_time: Duration,
     fps_str: String,
     selected_block: String,
+    biome: String,
 }
 
 impl Ui {
@@ -42,6 +44,7 @@ impl Ui {
             total_time: Duration::new(0, 0),
             fps_str: String::from("FPS: 0"),
             selected_block: String::from(""),
+            biome: String::from(""),
         }
     }
 
@@ -50,7 +53,8 @@ impl Ui {
         player_position: &Vec3,
         block_position: &IVec2,
         chunk_position: &IVec2,
-        selected_block_type: crate::block::Type,
+        selected_block_type: block::Type,
+        blend_str: String,
         dt: Duration,
     ) {
         self.player_position = format!(
@@ -60,6 +64,7 @@ impl Ui {
         self.block_position = format!("block: {block_position}");
         self.chunk_position = format!("chunk: {chunk_position}");
         self.selected_block = format!("selected: {:?}", selected_block_type);
+        self.biome = format!("biome: {}", blend_str);
 
         self.fps += 1;
         self.total_time += dt;
@@ -109,6 +114,9 @@ impl Ui {
                     Section::default()
                         .add_text(Text::new(&self.selected_block).with_scale(30.0))
                         .with_screen_position((20.0, 125.0)),
+                    Section::default()
+                        .add_text(Text::new(&self.biome).with_scale(30.0))
+                        .with_screen_position((20.0, 160.0)),
                 ],
             )
             .expect("failed to process UI queue");

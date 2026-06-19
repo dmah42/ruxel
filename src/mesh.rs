@@ -1,7 +1,6 @@
 use crate::vertex::Vertex;
-use crate::{chunks::Chunk, terrain::MountainTerrain};
+use crate::{chunks::Chunk, terrain::WorldTerrain};
 use glam::Vec3;
-use noise::NoiseFn;
 
 #[derive(Debug)]
 pub struct ChunkMesh {
@@ -26,7 +25,7 @@ impl ChunkMesh {
     pub fn build(
         chunk: &Chunk,
         loaded_chunks: &std::collections::HashMap<glam::UVec2, Vec<Chunk>>,
-        terrain: &MountainTerrain,
+        terrain: &WorldTerrain,
     ) -> Self {
         let mut vertices = Vec::new();
         let mut opaque_indices = Vec::new();
@@ -48,7 +47,7 @@ impl ChunkMesh {
                 let chunk_z = (wz as f32 / 16.0).floor() as i32;
                 let cy_index = (wy as f32 / 16.0).floor() as i32;
                 
-                if chunk_x >= 0 && chunk_z >= 0 && (0..8).contains(&cy_index) {
+                if chunk_x >= 0 && chunk_z >= 0 && (0..16).contains(&cy_index) {
                     let neighbor_key = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
                     if let Some(col) = loaded_chunks.get(&neighbor_key) {
                         let lx = wx.rem_euclid(16) as usize;
@@ -60,7 +59,7 @@ impl ChunkMesh {
                 }
 
                 let point: [f64; 2] = [wx as f64 / 384.0, wz as f64 / 384.0];
-                let height = ((terrain.get(point) + 1.0) * 32.0) as i32;
+                let height = terrain.get(point).0 as i32;
                 wy < height
             }
         };
@@ -78,7 +77,7 @@ impl ChunkMesh {
                 let chunk_z = (wz as f32 / 16.0).floor() as i32;
                 let cy_index = (wy as f32 / 16.0).floor() as i32;
                 
-                if chunk_x >= 0 && chunk_z >= 0 && (0..8).contains(&cy_index) {
+                if chunk_x >= 0 && chunk_z >= 0 && (0..16).contains(&cy_index) {
                     let neighbor_key = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
                     if let Some(col) = loaded_chunks.get(&neighbor_key) {
                         let lx = wx.rem_euclid(16) as usize;
@@ -90,7 +89,7 @@ impl ChunkMesh {
                 }
 
                 let point: [f64; 2] = [wx as f64 / 384.0, wz as f64 / 384.0];
-                let height = ((terrain.get(point) + 1.0) * 32.0) as i32;
+                let height = terrain.get(point).0 as i32;
                 wy < 32 && wy >= height
             }
         };
