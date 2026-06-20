@@ -5,9 +5,6 @@ it's written in rust.
 
 ## Bugs
 
-- underwater fog is glowing almost white at night.. i think maybe a sky colour
-  issue?
-
 ## Future improvements
 
 1. **Switch Local Biome Noise to Simplex**: Currently, individual biomes like

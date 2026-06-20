@@ -220,17 +220,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let d = camera.view_pos.xyz - in.world_position;
   let dist_sq = dot(d, d);
   let distance_fog_factor = smoothstep(camera.fog_start_sq, camera.fog_end_sq, dist_sq);
-  if (distance_fog_factor > 0.0) {
-      let view_dir_to_fragment = normalize(-d);
-      let fog_sky_color = get_sky_color(view_dir_to_fragment);
-      result = mix(result, fog_sky_color, distance_fog_factor);
-  }
+  if (distance_fog_factor > 0.0 || camera.view_pos.y < 32.0) {
+    let view_dir_to_fragment = normalize(-d);
+    let fog_sky_color = get_sky_color(view_dir_to_fragment);
+    if (distance_fog_factor > 0.0) {
+        result = mix(result, fog_sky_color, distance_fog_factor);
+    }
 
-  // Underwater fog
-  if (camera.view_pos.y < 32.0) {
-      let fog_color = vec3<f32>(0.0, 0.2, 0.6);
-      let fog_factor = 1.0 - exp(-sqrt(dist_sq) * 0.05);
-      result = mix(result, fog_color, fog_factor);
+    // Underwater fog
+    if (camera.view_pos.y < 32.0) {
+        let fog_color = fog_sky_color * vec3<f32>(0.2, 0.5, 1.0);
+        let fog_factor = 1.0 - exp(-sqrt(dist_sq) * 0.05);
+        result = mix(result, fog_color, fog_factor);
+    }
   }
 
   return vec4<f32>(result, in.color.w);
