@@ -25,6 +25,19 @@ impl fmt::Display for Biome {
     }
 }
 
+impl Biome {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "ocean" => Some(Biome::Ocean),
+            "plains" => Some(Biome::Plains),
+            "hills" => Some(Biome::Hills),
+            "mountains" => Some(Biome::Mountains),
+            "desert" => Some(Biome::Desert),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct BiomeWeights {
     plains: f64,
@@ -70,7 +83,7 @@ impl WorldTerrain {
 
     fn get_land_blend(&self, point: [f64; 2]) -> (Biome, BiomeWeights) {
         let temp_raw = self.temperature_noise.get(point);
-        
+
         let moist_raw = self.moisture_noise.get(point);
 
         let temp_norm = ((temp_raw + 1.0) / 2.0).clamp(0.0, 1.0);
@@ -90,10 +103,18 @@ impl WorldTerrain {
         let min_d = d_mountains.min(d_desert).min(d_plains).min(d_hills);
 
         let mut primary_biome = Biome::Mountains;
-        if min_d == d_hills { primary_biome = Biome::Hills; }
-        if min_d == d_desert { primary_biome = Biome::Desert; }
-        if min_d == d_plains { primary_biome = Biome::Plains; }
-        if min_d == d_mountains { primary_biome = Biome::Mountains; }
+        if min_d == d_hills {
+            primary_biome = Biome::Hills;
+        }
+        if min_d == d_desert {
+            primary_biome = Biome::Desert;
+        }
+        if min_d == d_plains {
+            primary_biome = Biome::Plains;
+        }
+        if min_d == d_mountains {
+            primary_biome = Biome::Mountains;
+        }
 
         // Blend weights based on distance difference from the minimum distance
         let blend_radius = 0.1; // This defines the width of the transition zone
@@ -138,17 +159,25 @@ impl WorldTerrain {
 
     pub fn get(&self, point: [f64; 2]) -> (f64, Biome) {
         let shore_t = self.get_shore_t(point);
-        
+
         let (mut primary_biome, weights) = self.get_land_blend(point);
         if shore_t == 0.0 {
             primary_biome = Biome::Ocean;
         }
 
         let mut land_height = 0.0;
-        if weights.plains > 0.0 { land_height += weights.plains * self.plains.get(point); }
-        if weights.hills > 0.0 { land_height += weights.hills * self.hills.get(point); }
-        if weights.desert > 0.0 { land_height += weights.desert * self.desert.get(point); }
-        if weights.mountains > 0.0 { land_height += weights.mountains * self.mountains.get(point); }
+        if weights.plains > 0.0 {
+            land_height += weights.plains * self.plains.get(point);
+        }
+        if weights.hills > 0.0 {
+            land_height += weights.hills * self.hills.get(point);
+        }
+        if weights.desert > 0.0 {
+            land_height += weights.desert * self.desert.get(point);
+        }
+        if weights.mountains > 0.0 {
+            land_height += weights.mountains * self.mountains.get(point);
+        }
 
         let ocean_abyss = self.ocean.get(point);
         let final_height = if shore_t >= 1.0 {
@@ -173,15 +202,76 @@ impl WorldTerrain {
         (final_height, primary_biome)
     }
 
+    pub fn is_pure_biome(&self, point: [f64; 2], target: Biome) -> bool {
+        let shore_t = self.get_shore_t(point);
+        if target == Biome::Ocean {
+            return shore_t == 0.0;
+        }
+        if shore_t < 1.0 {
+            return false; // Mixed with ocean
+        }
+
+        let (primary, weights) = self.get_land_blend(point);
+        if primary != target {
+            return false;
+        }
+
+        let w = match target {
+            Biome::Plains => weights.plains,
+            Biome::Hills => weights.hills,
+            Biome::Desert => weights.desert,
+            Biome::Mountains => weights.mountains,
+            Biome::Ocean => 0.0,
+        };
+
+        w > 0.99
+    }
+
+    pub fn find_closest_pure_biome(
+        &self,
+        start_x: f64,
+        start_z: f64,
+        target: Biome,
+    ) -> Option<[f64; 2]> {
+        let step_size = 32.0 / 384.0;
+        let max_steps = 400 * 400;
+        let start_point = [start_x / 384.0, start_z / 384.0];
+
+        let mut x = 0;
+        let mut z = 0;
+        let mut dx = 0;
+        let mut dz = -1;
+
+        for _ in 0..max_steps {
+            let px = start_point[0] + (x as f64 * step_size);
+            let pz = start_point[1] + (z as f64 * step_size);
+
+            let point = [px, pz];
+            if self.is_pure_biome(point, target) {
+                return Some([px * 384.0, pz * 384.0]);
+            }
+
+            if x == z || (x < 0 && x == -z) || (x > 0 && x == 1 - z) {
+                let temp = dx;
+                dx = -dz;
+                dz = temp;
+            }
+
+            x += dx;
+            z += dz;
+        }
+        None
+    }
+
     pub fn biome_blend_string(&self, point: [f64; 2]) -> String {
         let shore_t = self.get_shore_t(point);
-        
+
         if shore_t == 0.0 {
             return "100% Ocean".to_string();
         }
 
         let (_, weights) = self.get_land_blend(point);
-        
+
         let land_pct = (shore_t * 100.0).round() as i32;
         let ocean_pct = 100 - land_pct;
 
@@ -207,8 +297,6 @@ impl WorldTerrain {
         b_strs.join(", ")
     }
 }
-
-
 
 // -----------------------------------------------------------------------------
 // Biome Generators
@@ -254,7 +342,7 @@ impl PlainsTerrain {
         let base_persistence = 0.5;
         let detail_octaves = 3;
         let detail_persistence = 0.4;
-        
+
         Self {
             base_noise: Fbm::<Perlin>::new(seed)
                 .set_frequency(0.5)
@@ -272,10 +360,10 @@ impl PlainsTerrain {
     fn get(&self, point: [f64; 2]) -> f64 {
         let base_val = self.base_noise.get(point);
         let detail_val = self.detail_noise.get(point);
-        
+
         let base_norm = (base_val + self.base_bound) / (2.0 * self.base_bound);
         let detail_norm = (detail_val + self.detail_bound) / (2.0 * self.detail_bound);
-        
+
         let combined = base_norm * 0.8 + detail_norm * 0.2;
         20.0 + combined * 28.0
     }
@@ -291,7 +379,7 @@ struct HillsTerrain {
 
 impl HillsTerrain {
     fn new(seed: u32) -> Self {
-        let base_octaves = 4;
+        let base_octaves = 6;
         let base_persistence = 0.5;
         let mask_octaves = 4;
         let mask_persistence = 0.5;
@@ -321,7 +409,7 @@ impl HillsTerrain {
         let exponent = 1.0 + (mask_val * 3.5);
         let final_val = base_val.powf(exponent);
 
-        24.0 + final_val * 48.0
+        24.0 + final_val * 100.0
     }
 }
 
@@ -376,7 +464,7 @@ fn hash2(x: u32, y: u32, seed: u32) -> [f64; 2] {
     h ^= h >> 16;
     h = h.wrapping_mul(0x732A12AB);
     h ^= h >> 15;
-    
+
     let fx = (h & 0xFFFF) as f64 / 65535.0;
     let fy = ((h >> 16) & 0xFFFF) as f64 / 65535.0;
     [fx, fy]
@@ -409,7 +497,7 @@ impl DesertTerrain {
         // Instead of picking the *single* closest seed (which causes sharp cell boundaries),
         // we evaluate the dune height from ALL 9 neighboring cells and take the maximum.
         // This makes the dunes perfectly smooth with no grid lines or cell edges!
-        let freq = 0.8; 
+        let freq = 0.8;
         let px = point[0] * freq;
         let pz = point[1] * freq;
 
@@ -424,32 +512,32 @@ impl DesertTerrain {
             for dx in -1..=1 {
                 let cx = ix + dx as f64;
                 let cz = iz + dz as f64;
-                
+
                 let ux = cx as i64 as u32;
                 let uz = cz as i64 as u32;
-                
+
                 let p = hash2(ux, uz, self.seed);
-                
+
                 // Vector from pixel to this neighbor's seed point
                 let vx = (dx as f64) + p[0] - fx;
                 let vz = (dz as f64) + p[1] - fz;
-                
-                let local_dx = vx; 
-                let local_dz = vz; 
-                
+
+                let local_dx = vx;
+                let local_dz = vz;
+
                 let cross_dist = local_dz.abs();
-                
+
                 // Horns curve downwind.
                 let horn_sweep = 0.8;
                 let local_x = local_dx + cross_dist * cross_dist * horn_sweep;
-                
+
                 let mut profile = 0.0;
-                
+
                 if local_x >= 0.0 {
                     // Windward slope (gentle rise)
                     if local_x < 0.8 {
                         let t = 1.0 - (local_x / 0.8);
-                        profile = t * t * (3.0 - 2.0 * t); 
+                        profile = t * t * (3.0 - 2.0 * t);
                     }
                 } else {
                     // Slip face (sharp drop)
@@ -458,11 +546,11 @@ impl DesertTerrain {
                         profile = t * t * (3.0 - 2.0 * t);
                     }
                 }
-                
+
                 // Taper height sideways so it blends into the desert floor at the edges
                 let taper = (1.0 - cross_dist * 1.5).clamp(0.0, 1.0);
                 let height = profile * taper * taper;
-                
+
                 if height > max_dune_height {
                     max_dune_height = height;
                 }
@@ -487,10 +575,14 @@ mod tests {
         for i in 0..100 {
             let point = [i as f64 / 10.0, i as f64 / 10.0];
             let (primary, weights) = terrain.get_land_blend(point);
-            
+
             let sum = weights.plains + weights.hills + weights.desert + weights.mountains;
-            assert!((sum - 1.0).abs() < 0.001, "Weights should sum to 1.0, got {}", sum);
-            
+            assert!(
+                (sum - 1.0).abs() < 0.001,
+                "Weights should sum to 1.0, got {}",
+                sum
+            );
+
             let mut w_array = [
                 (Biome::Plains, weights.plains),
                 (Biome::Hills, weights.hills),
@@ -505,7 +597,10 @@ mod tests {
                 Biome::Mountains => weights.mountains,
                 Biome::Ocean => 0.0,
             };
-            assert!((max_calculated_weight - w_array[0].1).abs() < 0.001, "Primary biome must have the highest weight, even on ties");
+            assert!(
+                (max_calculated_weight - w_array[0].1).abs() < 0.001,
+                "Primary biome must have the highest weight, even on ties"
+            );
         }
     }
 
@@ -514,7 +609,7 @@ mod tests {
         let terrain = WorldTerrain::new(12345);
         let mut pure_blocks = 0;
         let mut total_blocks = 0;
-        
+
         let mut biome_counts = std::collections::HashMap::new();
 
         let grid_size = 10000;
@@ -524,16 +619,16 @@ mod tests {
             for z in 0..grid_size {
                 let point = [x as f64 / 384.0, z as f64 / 384.0];
                 total_blocks += 1;
-                
+
                 let shore_t = terrain.get_shore_t(point);
                 let (primary_land, land_weights) = terrain.get_land_blend(point);
-                
+
                 let final_biome = if shore_t < 0.5 {
                     Biome::Ocean
                 } else {
                     primary_land
                 };
-                
+
                 *biome_counts.entry(final_biome).or_insert(0) += 1;
 
                 let primary_w = match final_biome {
@@ -554,26 +649,44 @@ mod tests {
                 let desert_w = shore_t * land_weights.desert;
                 let mountains_w = shore_t * land_weights.mountains;
 
-                let r = (ocean_w * 0.0 + plains_w * 144.0 + hills_w * 34.0 + desert_w * 237.0 + mountains_w * 200.0) as u8;
-                let g = (ocean_w * 105.0 + plains_w * 238.0 + hills_w * 139.0 + desert_w * 201.0 + mountains_w * 200.0) as u8;
-                let b = (ocean_w * 148.0 + plains_w * 144.0 + hills_w * 34.0 + desert_w * 175.0 + mountains_w * 200.0) as u8;
+                let r = (ocean_w * 0.0
+                    + plains_w * 144.0
+                    + hills_w * 34.0
+                    + desert_w * 237.0
+                    + mountains_w * 200.0) as u8;
+                let g = (ocean_w * 105.0
+                    + plains_w * 238.0
+                    + hills_w * 139.0
+                    + desert_w * 201.0
+                    + mountains_w * 200.0) as u8;
+                let b = (ocean_w * 148.0
+                    + plains_w * 144.0
+                    + hills_w * 34.0
+                    + desert_w * 175.0
+                    + mountains_w * 200.0) as u8;
 
                 img.put_pixel(x as u32, z as u32, image::Rgb([r, g, b]));
             }
         }
-        
-        img.save("biome_map.bmp").expect("Failed to save biome_map.bmp");
-        
+
+        img.save("biome_map.bmp")
+            .expect("Failed to save biome_map.bmp");
+
         assert!(total_blocks > 0, "No blocks generated in the test area.");
         let pure_pct = pure_blocks as f64 / total_blocks as f64;
         println!("Pure biome coverage: {:.2}%", pure_pct * 100.0);
-        let biome_pcts: Vec<String> = biome_counts.iter()
+        let biome_pcts: Vec<String> = biome_counts
+            .iter()
             .map(|(b, c)| format!("{:?}: {:.2}%", b, *c as f64 / total_blocks as f64 * 100.0))
             .collect();
         println!("Biome distribution: {:?}", biome_pcts);
-        
+
         // Ensure at least 60% of the land is pure (not in a transition zone)
-        assert!(pure_pct > 0.60, "Not enough pure biome coverage! Only {:.2}% is pure.", pure_pct * 100.0);
+        assert!(
+            pure_pct > 0.60,
+            "Not enough pure biome coverage! Only {:.2}% is pure.",
+            pure_pct * 100.0
+        );
     }
 
     #[test]
@@ -581,7 +694,7 @@ mod tests {
         let terrain = WorldTerrain::new(12345);
         let grid_size = 10000;
         let mut img = image::ImageBuffer::new(grid_size as u32, grid_size as u32);
-        
+
         let mut ocean_blocks = 0;
         let mut total_blocks = 0;
 
@@ -589,12 +702,12 @@ mod tests {
             for z in 0..grid_size {
                 let point = [x as f64 / 384.0, z as f64 / 384.0];
                 total_blocks += 1;
-                
+
                 let shore_t = terrain.get_shore_t(point);
                 if shore_t == 0.0 {
                     ocean_blocks += 1;
                 }
-                
+
                 let r = (shore_t * 34.0 + (1.0 - shore_t) * 0.0) as u8;
                 let g = (shore_t * 139.0 + (1.0 - shore_t) * 105.0) as u8;
                 let b = (shore_t * 34.0 + (1.0 - shore_t) * 148.0) as u8;
@@ -602,13 +715,18 @@ mod tests {
                 img.put_pixel(x as u32, z as u32, image::Rgb([r, g, b]));
             }
         }
-        
-        img.save("continent_map.bmp").expect("Failed to save continent_map.bmp");
-        
+
+        img.save("continent_map.bmp")
+            .expect("Failed to save continent_map.bmp");
+
         let ocean_pct = ocean_blocks as f64 / total_blocks as f64;
         println!("Ocean coverage: {:.2}%", ocean_pct * 100.0);
         // We want roughly 30-40% ocean
-        assert!(ocean_pct > 0.20 && ocean_pct < 0.50, "Ocean coverage {:.2}% is out of bounds (20-50%).", ocean_pct * 100.0);
+        assert!(
+            ocean_pct > 0.20 && ocean_pct < 0.50,
+            "Ocean coverage {:.2}% is out of bounds (20-50%).",
+            ocean_pct * 100.0
+        );
     }
 
     #[test]
@@ -624,7 +742,8 @@ mod tests {
                 img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
             }
         }
-        img.save("biome_height_plains.bmp").expect("Failed to save plains heightmap");
+        img.save("biome_height_plains.bmp")
+            .expect("Failed to save plains heightmap");
     }
 
     #[test]
@@ -639,7 +758,8 @@ mod tests {
                 img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
             }
         }
-        img.save("biome_height_mountains.bmp").expect("Failed to save mountain heightmap");
+        img.save("biome_height_mountains.bmp")
+            .expect("Failed to save mountain heightmap");
     }
 
     #[test]
@@ -654,7 +774,8 @@ mod tests {
                 img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
             }
         }
-        img.save("biome_height_desert.bmp").expect("Failed to save desert heightmap");
+        img.save("biome_height_desert.bmp")
+            .expect("Failed to save desert heightmap");
     }
 
     #[test]
@@ -669,6 +790,7 @@ mod tests {
                 img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
             }
         }
-        img.save("biome_height_hills.bmp").expect("Failed to save hills heightmap");
+        img.save("biome_height_hills.bmp")
+            .expect("Failed to save hills heightmap");
     }
 }

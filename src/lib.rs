@@ -1,7 +1,9 @@
 mod block;
 mod camera;
 mod chunks;
+mod commands;
 pub mod config;
+mod console;
 mod light;
 mod mesh;
 mod render_state;
@@ -14,10 +16,10 @@ mod vertex;
 
 use std::time::{Duration, Instant};
 
+use rand::Rng;
 use render_state::RenderState;
 use std::sync::Arc;
 use ui::Ui;
-use rand::Rng;
 use winit::{
     dpi::PhysicalSize,
     event::*,
@@ -46,6 +48,7 @@ pub struct Ruxel {
     last_cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
     selected_block_type: block::Type,
     ui: Ui,
+    console: console::Console,
     config: config::Config,
     last_save_time: Instant,
 }
@@ -63,7 +66,12 @@ impl Ruxel {
             }
         }
 
-        let seed = config.worlds.get(&config.active_world).unwrap().seed.expect("Seed should always be present after load_or_create");
+        let seed = config
+            .worlds
+            .get(&config.active_world)
+            .unwrap()
+            .seed
+            .expect("Seed should always be present after load_or_create");
         log::info!("Loaded config: {:?}", config);
         let event_loop = EventLoop::new()?;
         let window = WindowBuilder::new()
@@ -93,8 +101,18 @@ impl Ruxel {
 
         let scene = scene::Scene::new(seed, config.clone());
 
-        let (player_x, player_y, player_z, yaw, pitch) = if let Some(cam) = config.worlds.get(&config.active_world).and_then(|w| w.camera.as_ref()) {
-            (cam.position[0], cam.position[1], cam.position[2], cam.yaw, cam.pitch)
+        let (player_x, player_y, player_z, yaw, pitch) = if let Some(cam) = config
+            .worlds
+            .get(&config.active_world)
+            .and_then(|w| w.camera.as_ref())
+        {
+            (
+                cam.position[0],
+                cam.position[1],
+                cam.position[2],
+                cam.yaw,
+                cam.pitch,
+            )
         } else {
             let mut rng = rand::thread_rng();
             let mut px = rng.gen_range(2000.0..4000.0);
@@ -122,7 +140,6 @@ impl Ruxel {
         );
 
         let state = RenderState::new(config.clone(), window.clone()).await;
-        let ui = Ui::new();
 
         Ok(Self {
             event_loop: Some(event_loop),
@@ -136,7 +153,8 @@ impl Ruxel {
             received_mouse_motion: false,
             last_cursor_pos: None,
             selected_block_type: block::Type::Grass,
-            ui,
+            ui: Ui::new(),
+            console: console::Console::new(),
             config,
             last_save_time: Instant::now(),
         })
@@ -182,12 +200,34 @@ impl Ruxel {
                 event:
                     KeyEvent {
                         physical_key: PhysicalKey::Code(keycode),
+                        logical_key,
                         state,
                         ..
                     },
                 ..
             } => {
                 if *state == ElementState::Pressed {
+                    if *keycode == KeyCode::Backquote {
+                        self.console.toggle();
+                        return true;
+                    }
+
+                    if self.console.is_open() {
+                        match keycode {
+                            KeyCode::Backspace => self.console.handle_backspace(),
+                            KeyCode::Enter => self.console.handle_enter(),
+                            KeyCode::Space => self.console.handle_char(' '),
+                            _ => {
+                                if let winit::keyboard::Key::Character(c) = logical_key {
+                                    if let Some(ch) = c.chars().next() {
+                                        self.console.handle_char(ch);
+                                    }
+                                }
+                            }
+                        }
+                        return true;
+                    }
+
                     match keycode {
                         KeyCode::Digit1 => self.selected_block_type = block::Type::Grass,
                         KeyCode::Digit2 => self.selected_block_type = block::Type::Sand,
@@ -197,13 +237,21 @@ impl Ruxel {
                         _ => {}
                     }
                 }
-                self.camera_controller.process_keyboard(*state, 0, *keycode)
+
+                if !self.console.is_open() {
+                    self.camera_controller.process_keyboard(*state, 0, *keycode)
+                } else {
+                    false
+                }
             }
             WindowEvent::MouseInput {
                 button: MouseButton::Left,
                 state,
                 ..
             } => {
+                if self.console.is_open() {
+                    return false;
+                }
                 let pressed = *state == ElementState::Pressed;
                 if pressed && !self.mouse_pressed {
                     if !self.mouse_grabbed {
@@ -220,6 +268,9 @@ impl Ruxel {
                 state: ElementState::Pressed,
                 ..
             } => {
+                if self.console.is_open() {
+                    return false;
+                }
                 if !self.mouse_grabbed {
                     self.grab_mouse();
                 } else {
@@ -231,27 +282,54 @@ impl Ruxel {
         }
     }
 
+    fn process_console_commands(&mut self) {
+        if let Some(cmd) = self.console.take_command() {
+            let result = match cmd {
+                console::Command::Teleport(x, y, z) => {
+                    commands::execute_teleport(&mut self.camera, x, y, z)
+                }
+                console::Command::Time(t) => commands::execute_time(&mut self.scene, t),
+                console::Command::FindBiome(b) => {
+                    commands::execute_find_biome(&mut self.scene, &self.camera, &b)
+                }
+                console::Command::Help(cmd) => commands::execute_help(cmd),
+                console::Command::Unknown(cmd) => format!("Unknown command: {}", cmd),
+                console::Command::Error(err) => format!("Error: {}", err),
+            };
+            self.console.push_history(result);
+        }
+    }
+
     fn update(&mut self, dt: Duration, selected_block_type: block::Type) {
-        self.camera_controller.update_camera(&mut self.camera, dt);
+        if self.console.is_open() {
+            self.process_console_commands();
+        } else {
+            self.camera_controller.update_camera(&mut self.camera, dt);
+        }
         self.camera.update_physics(self.scene.chunks(), dt);
         self.scene.update(dt, &self.camera);
-        
-        let selected_block = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE).map(|(pos, _)| pos);
-        
+
+        let selected_block = self
+            .camera
+            .raycast(self.scene.chunks(), REACH_DISTANCE)
+            .map(|(pos, _)| pos);
+
         let player_pos = self.camera.position();
         let point = [player_pos.x as f64 / 384.0, player_pos.z as f64 / 384.0];
         let blend_str = self.scene.chunks().terrain().biome_blend_string(point);
 
-        self.ui.update(
-            &player_pos,
-            self.scene.chunks().block_position(),
-            self.scene.chunks().chunk_position(),
+        self.ui.update(ui::UiContext {
+            player_position: &player_pos,
+            block_position: self.scene.chunks().block_position(),
+            chunk_position: self.scene.chunks().chunk_position(),
             selected_block_type,
             blend_str,
             dt,
-        );
-        
-        self.state.update(dt, &self.camera, &self.scene, selected_block);
+            console: &self.console,
+        });
+
+        self.state
+            .update(dt, &self.camera, &self.scene, selected_block);
 
         if self.last_save_time.elapsed() > Duration::from_secs(5) {
             self.save_config();
@@ -309,10 +387,14 @@ impl Ruxel {
                     event: DeviceEvent::MouseMotion { delta },
                     ..
                 } => {
+                    if self.console.is_open() {
+                        return;
+                    }
                     self.received_mouse_motion = true;
                     if self.mouse_grabbed {
                         let scale = self.window.scale_factor();
-                        self.camera_controller.process_mouse(delta.0 * scale, delta.1 * scale);
+                        self.camera_controller
+                            .process_mouse(delta.0 * scale, delta.1 * scale);
                     }
                 }
                 Event::WindowEvent {
@@ -350,11 +432,16 @@ impl Ruxel {
                     }
                     WindowEvent::Resized(physical_size) => {
                         if physical_size.width > 0 && physical_size.height > 0 {
-                            self.camera.projection.resize(physical_size.width, physical_size.height);
+                            self.camera
+                                .projection
+                                .resize(physical_size.width, physical_size.height);
                         }
                         self.state.resize(*physical_size);
                     }
                     WindowEvent::CursorMoved { position, .. } => {
+                        if self.console.is_open() {
+                            return;
+                        }
                         if self.mouse_grabbed {
                             if !self.received_mouse_motion {
                                 if let Some(last_pos) = self.last_cursor_pos {

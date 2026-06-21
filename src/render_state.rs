@@ -10,8 +10,9 @@ use crate::{
 };
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+use wgpu_text::glyph_brush::{HorizontalAlign, VerticalAlign};
 use wgpu_text::{
-    glyph_brush::{ab_glyph::FontArc, Section, Text},
+    glyph_brush::{ab_glyph::FontArc, Layout, Section, Text},
     BrushBuilder, TextBrush,
 };
 use winit::window::Window;
@@ -34,6 +35,7 @@ pub struct RenderState<'window> {
     moon_render_pipeline: wgpu::RenderPipeline,
     sky_render_pipeline: wgpu::RenderPipeline,
     wireframe_pipeline: wgpu::RenderPipeline,
+    overlay_pipeline: wgpu::RenderPipeline,
     selected_block: Option<glam::IVec3>,
 
     ui_brush: TextBrush,
@@ -148,11 +150,12 @@ impl RenderState<'static> {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let wireframe_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("wireframe uniform buffer"),
-            contents: bytemuck::cast_slice(&[[0.0f32; 4]]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let wireframe_uniform_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("wireframe uniform buffer"),
+                contents: bytemuck::cast_slice(&[[0.0f32; 4]]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
 
         let camera_uniform = Uniform::new();
 
@@ -289,8 +292,12 @@ impl RenderState<'static> {
                 push_constant_ranges: &[],
             });
 
-            PipelineConfig::opaque(&layout, SimpleVertex::desc(), wgpu::include_wgsl!("sun.wgsl"))
-                .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
+            PipelineConfig::opaque(
+                &layout,
+                SimpleVertex::desc(),
+                wgpu::include_wgsl!("sun.wgsl"),
+            )
+            .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
         };
 
         let moon_render_pipeline = {
@@ -300,9 +307,13 @@ impl RenderState<'static> {
                 push_constant_ranges: &[],
             });
 
-            PipelineConfig::opaque(&layout, SimpleVertex::desc(), wgpu::include_wgsl!("moon.wgsl"))
-                .with_blend_state(wgpu::BlendState::ALPHA_BLENDING)
-                .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
+            PipelineConfig::opaque(
+                &layout,
+                SimpleVertex::desc(),
+                wgpu::include_wgsl!("moon.wgsl"),
+            )
+            .with_blend_state(wgpu::BlendState::ALPHA_BLENDING)
+            .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
         };
 
         let wireframe_pipeline = {
@@ -312,9 +323,13 @@ impl RenderState<'static> {
                 push_constant_ranges: &[],
             });
 
-            PipelineConfig::opaque(&layout, SimpleVertex::desc(), wgpu::include_wgsl!("wireframe.wgsl"))
-                .with_topology(wgpu::PrimitiveTopology::LineList)
-                .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
+            PipelineConfig::opaque(
+                &layout,
+                SimpleVertex::desc(),
+                wgpu::include_wgsl!("wireframe.wgsl"),
+            )
+            .with_topology(wgpu::PrimitiveTopology::LineList)
+            .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
         };
 
         let sky_render_pipeline = {
@@ -369,6 +384,52 @@ impl RenderState<'static> {
             })
         };
 
+        let overlay_pipeline = {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("overlay pipeline layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+            let shader = device.create_shader_module(wgpu::include_wgsl!("overlay.wgsl"));
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("overlay render pipeline"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_config.format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                multiview: None,
+            })
+        };
+
         Self {
             size,
             surface,
@@ -381,6 +442,7 @@ impl RenderState<'static> {
             moon_render_pipeline,
             sky_render_pipeline,
             wireframe_pipeline,
+            overlay_pipeline,
             chunk_buffers: std::collections::HashMap::new(),
             chunk_versions: std::collections::HashMap::new(),
 
@@ -403,13 +465,23 @@ impl RenderState<'static> {
         }
     }
 
-    pub fn update(&mut self, dt: Duration, camera: &Camera, scene: &Scene, selected_block: Option<glam::IVec3>) {
+    pub fn update(
+        &mut self,
+        dt: Duration,
+        camera: &Camera,
+        scene: &Scene,
+        selected_block: Option<glam::IVec3>,
+    ) {
         self.update_chunk_buffers(scene);
 
         self.selected_block = selected_block;
         if let Some(pos) = self.selected_block {
             let offset = [pos.x as f32, pos.y as f32, pos.z as f32, 0.0f32];
-            self.queue.write_buffer(&self.wireframe_uniform_buffer, 0, bytemuck::cast_slice(&[offset]));
+            self.queue.write_buffer(
+                &self.wireframe_uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[offset]),
+            );
         }
 
         self.camera_uniform.update_view_proj(camera);
@@ -438,14 +510,19 @@ impl RenderState<'static> {
         let locked_loaded = loaded.lock().expect("");
 
         // Remove buffers for chunks that are no longer loaded
-        self.chunk_buffers.retain(|key, _| locked_loaded.contains_key(key));
-        self.chunk_versions.retain(|key, _| locked_loaded.contains_key(key));
+        self.chunk_buffers
+            .retain(|key, _| locked_loaded.contains_key(key));
+        self.chunk_versions
+            .retain(|key, _| locked_loaded.contains_key(key));
 
         let terrain = scene.chunks().terrain().clone();
 
         let mut dirty_chunks = Vec::new();
         for (key, chunks) in locked_loaded.iter() {
-            let versions = self.chunk_versions.entry(*key).or_insert_with(|| vec![0; chunks.len()]);
+            let versions = self
+                .chunk_versions
+                .entry(*key)
+                .or_insert_with(|| vec![0; chunks.len()]);
             for (i, chunk) in chunks.iter().enumerate() {
                 if versions[i] != chunk.version() {
                     dirty_chunks.push((*key, i, chunk.version()));
@@ -461,38 +538,51 @@ impl RenderState<'static> {
         }
 
         for (key, i, version, mesh) in new_meshes {
-            let col_buffers = self.chunk_buffers.entry(key).or_insert_with(|| (0..locked_loaded.get(&key).unwrap().len()).map(|_| None).collect());
-            let col_versions = self.chunk_versions.entry(key).or_insert_with(|| vec![0; locked_loaded.get(&key).unwrap().len()]);
-            
+            let col_buffers = self.chunk_buffers.entry(key).or_insert_with(|| {
+                (0..locked_loaded.get(&key).unwrap().len())
+                    .map(|_| None)
+                    .collect()
+            });
+            let col_versions = self
+                .chunk_versions
+                .entry(key)
+                .or_insert_with(|| vec![0; locked_loaded.get(&key).unwrap().len()]);
+
             let opaque_indices = mesh.opaque_indices();
             let transparent_indices = mesh.transparent_indices();
 
             if opaque_indices.is_empty() && transparent_indices.is_empty() {
                 col_buffers[i] = None;
             } else {
-                let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("chunk vertex buffer"),
-                    contents: bytemuck::cast_slice(mesh.vertices()),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
+                let vertex_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("chunk vertex buffer"),
+                            contents: bytemuck::cast_slice(mesh.vertices()),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
 
                 let opaque_index_buffer = if !opaque_indices.is_empty() {
-                    let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("chunk opaque index buffer"),
-                        contents: bytemuck::cast_slice(opaque_indices),
-                        usage: wgpu::BufferUsages::INDEX,
-                    });
+                    let buf = self
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("chunk opaque index buffer"),
+                            contents: bytemuck::cast_slice(opaque_indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
                     Some((buf, opaque_indices.len() as u32))
                 } else {
                     None
                 };
 
                 let transparent_index_buffer = if !transparent_indices.is_empty() {
-                    let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("chunk transparent index buffer"),
-                        contents: bytemuck::cast_slice(transparent_indices),
-                        usage: wgpu::BufferUsages::INDEX,
-                    });
+                    let buf = self
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("chunk transparent index buffer"),
+                            contents: bytemuck::cast_slice(transparent_indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
                     Some((buf, transparent_indices.len() as u32))
                 } else {
                     None
@@ -516,7 +606,8 @@ impl RenderState<'static> {
             self.surface.configure(&self.device, &self.config);
             self.depth_texture =
                 Texture::new_depth_texture(&self.device, &self.config, "depth buffer");
-            self.ui_brush.resize_view(new_size.width as f32, new_size.height as f32, &self.queue);
+            self.ui_brush
+                .resize_view(new_size.width as f32, new_size.height as f32, &self.queue);
         }
     }
 
@@ -560,10 +651,8 @@ impl RenderState<'static> {
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    self.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
+                render_pass
+                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
             }
             // draw moon
@@ -572,10 +661,8 @@ impl RenderState<'static> {
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    self.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
+                render_pass
+                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
             }
 
@@ -629,7 +716,10 @@ impl RenderState<'static> {
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.wireframe_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(self.wireframe_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.set_index_buffer(
+                    self.wireframe_index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint16,
+                );
                 render_pass.draw_indexed(0..24, 0, 0..1);
             }
         }
@@ -649,40 +739,89 @@ impl RenderState<'static> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-            
+
+            if ui.is_console_open {
+                ui_pass.set_pipeline(&self.overlay_pipeline);
+                ui_pass.draw(0..6, 0..1);
+            }
+
             let center = (self.size.width as f32 / 2.0, self.size.height as f32 / 2.0);
-            self.ui_brush
-                .queue(
-                    &self.device,
-                    &self.queue,
-                    vec![
-                        Section::default()
-                            .add_text(Text::new(&ui.player_position).with_scale(30.0))
-                            .with_screen_position((20.0, 20.0)),
-                        Section::default()
-                            .add_text(Text::new(&ui.block_position).with_scale(30.0))
-                            .with_screen_position((20.0, 55.0)),
-                        Section::default()
-                            .add_text(Text::new(&ui.chunk_position).with_scale(30.0))
-                            .with_screen_position((20.0, 90.0)),
-                        Section::default()
-                            .add_text(Text::new(&ui.fps_str).with_scale(30.0))
-                            .with_screen_position((900.0, 20.0)),
+
+            let mut text_sections = vec![Section::default()
+                .add_text(
+                    Text::new(&ui.target)
+                        .with_scale(48.0)
+                        .with_color([0.0, 0.0, 0.0, 0.7]),
+                )
+                .with_screen_position(center)];
+
+            if ui.is_console_open {
+                let scale = 28.0;
+                text_sections.extend(vec![
+                    Section::default()
+                        .add_text(
+                            Text::new(&ui.player_position)
+                                .with_scale(scale)
+                                .with_color([0.2, 0.8, 1.0, 1.0]),
+                        )
+                        .with_screen_position((20.0, 20.0)),
+                    Section::default()
+                        .add_text(
+                            Text::new(&ui.block_position)
+                                .with_scale(scale)
+                                .with_color([0.3, 0.9, 0.9, 1.0]),
+                        )
+                        .with_screen_position((20.0, 55.0)),
+                    Section::default()
+                        .add_text(
+                            Text::new(&ui.chunk_position)
+                                .with_scale(scale)
+                                .with_color([0.9, 0.7, 0.3, 1.0]),
+                        )
+                        .with_screen_position((20.0, 90.0)),
+                    Section::default()
+                        .add_text(
+                            Text::new(&ui.fps_str)
+                                .with_scale(scale)
+                                .with_color([0.2, 1.0, 0.2, 1.0]),
+                        )
+                        .with_screen_position((self.size.width as f32 / 2.0, 20.0))
+                        .with_layout(Layout::default().h_align(HorizontalAlign::Center)),
+                    Section::default()
+                        .add_text(
+                            Text::new(&ui.selected_block)
+                                .with_scale(scale)
+                                .with_color([0.9, 0.5, 0.9, 1.0]),
+                        )
+                        .with_screen_position((self.size.width as f32 - 20.0, 20.0))
+                        .with_layout(Layout::default().h_align(HorizontalAlign::Right)),
+                    Section::default()
+                        .add_text(
+                            Text::new(&ui.biome)
+                                .with_scale(scale)
+                                .with_color([1.0, 0.9, 0.4, 1.0]),
+                        )
+                        .with_screen_position((self.size.width as f32 - 20.0, 55.0))
+                        .with_layout(Layout::default().h_align(HorizontalAlign::Right)),
+                    {
+                        let console_bottom = self.size.height as f32 * 0.42;
+                        let layout = Layout::default().v_align(VerticalAlign::Bottom);
+
                         Section::default()
                             .add_text(
-                                Text::new(&ui.target)
-                                    .with_scale(48.0)
-                                    .with_color([0.0, 0.0, 0.0, 0.7]),
+                                Text::new(&ui.console_text)
+                                    .with_scale(scale)
+                                    .with_color([1.0, 1.0, 1.0, 1.0]),
                             )
-                            .with_screen_position(center),
-                        Section::default()
-                            .add_text(Text::new(&ui.selected_block).with_scale(30.0))
-                            .with_screen_position((20.0, 125.0)),
-                        Section::default()
-                            .add_text(Text::new(&ui.biome).with_scale(30.0))
-                            .with_screen_position((20.0, 160.0)),
-                    ],
-                )
+                            .with_screen_position((20.0, console_bottom - 20.0))
+                            .with_layout(layout)
+                            .with_bounds((self.size.width as f32 - 40.0, console_bottom - 150.0))
+                    },
+                ]);
+            }
+
+            self.ui_brush
+                .queue(&self.device, &self.queue, text_sections)
                 .expect("failed to process UI queue");
             self.ui_brush.draw(&mut ui_pass);
         }

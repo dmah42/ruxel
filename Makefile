@@ -22,7 +22,7 @@ build_release: check
 test_release: build_release
 	cargo test --release
 
-run_release: test_release
+run_release:
 	cargo run -r
 
 wasm:

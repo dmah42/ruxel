@@ -112,6 +112,10 @@ impl Camera {
         self.position
     }
 
+    pub fn set_position(&mut self, pos: Vec3) {
+        self.position = pos;
+    }
+
     pub fn visual_position(&self) -> Vec3 {
         let mut p = self.position;
         p.y += self.step_offset;

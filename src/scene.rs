@@ -81,6 +81,16 @@ impl Scene {
         &self.lights
     }
 
+    pub fn time(&self) -> f32 {
+        self.sun_offset.y.atan2(self.sun_offset.x)
+    }
+
+    pub fn set_time(&mut self, t: f32) {
+        let radius = (self.sun_offset.x * self.sun_offset.x + self.sun_offset.y * self.sun_offset.y).sqrt();
+        self.sun_offset.x = radius * t.cos();
+        self.sun_offset.y = radius * t.sin();
+    }
+
     pub fn update(&mut self, dt: Duration, camera: &Camera) {
         let player_position = camera.position();
         self.chunks.update(&player_position);
