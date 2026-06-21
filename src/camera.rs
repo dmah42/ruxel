@@ -4,15 +4,14 @@ use bytemuck::{Pod, Zeroable};
 use crate::chunks::WATER_LEVEL;
 use glam::{Mat4, Vec3};
 use winit::{
-    dpi::PhysicalPosition,
-    event::{ElementState, MouseScrollDelta},
+    event::ElementState,
     keyboard::KeyCode,
 };
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.001;
 const GRAVITY: f32 = 25.0;
 const PLAYER_HEIGHT: f32 = 2.6;
-const SPEED: f32 = 4.0;
+const SPEED: f32 = 6.0;
 const SENSITIVITY: f32 = 0.4;
 const JUMP_VELOCITY: f32 = 10.0;
 
@@ -344,8 +343,6 @@ pub struct Controller {
     rotate_horiz: f32,
     rotate_vert: f32,
 
-    scroll: f32,
-
     speed: f32,
     sensitivity: f32,
 }
@@ -367,7 +364,6 @@ impl Controller {
 
             rotate_horiz: 0.0,
             rotate_vert: 0.0,
-            scroll: 0.0,
 
             speed: SPEED,
             sensitivity: SENSITIVITY,
@@ -427,13 +423,6 @@ impl Controller {
         self.rotate_vert = -mouse_dy as f32;
     }
 
-    pub fn process_scroll(&mut self, delta: &MouseScrollDelta) {
-        self.scroll = -match delta {
-            MouseScrollDelta::LineDelta(_, scroll) => -scroll * 100.0,
-            MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => -(*scroll as f32),
-        };
-    }
-
     pub fn update_camera(&mut self, camera: &mut Camera, dt: Duration) {
         let dt = dt.as_secs_f32();
 
@@ -452,12 +441,6 @@ impl Controller {
 
         camera.velocity.x = move_dir.x * current_speed;
         camera.velocity.z = move_dir.z * current_speed;
-
-        // zoom
-        let (pitch_sin, pitch_cos) = camera.pitch.sin_cos();
-        let scrollward = Vec3::new(pitch_cos * yaw_cos, pitch_sin, pitch_cos * yaw_sin).normalize();
-        camera.position += scrollward * self.scroll * self.speed * self.sensitivity * dt;
-        self.scroll = 0.0;
 
         // up and down
         if self.amount_up > 0.0 {

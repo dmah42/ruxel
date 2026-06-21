@@ -199,10 +199,6 @@ impl Ruxel {
                 }
                 self.camera_controller.process_keyboard(*state, 0, *keycode)
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                self.camera_controller.process_scroll(delta);
-                true
-            }
             WindowEvent::MouseInput {
                 button: MouseButton::Left,
                 state,
