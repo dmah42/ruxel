@@ -1,9 +1,7 @@
 use std::time::Duration;
 
 use crate::{
-    block::Type,
-    camera,
-    camera::Camera,
+    camera::{Camera, Uniform},
     scene::Scene,
     sky::Sky,
     texture::Texture,
@@ -12,6 +10,10 @@ use crate::{
 };
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+use wgpu_text::{
+    glyph_brush::{ab_glyph::FontArc, Section, Text},
+    BrushBuilder, TextBrush,
+};
 use winit::window::Window;
 
 struct ChunkBuffers {
@@ -34,11 +36,11 @@ pub struct RenderState<'window> {
     wireframe_pipeline: wgpu::RenderPipeline,
     selected_block: Option<glam::IVec3>,
 
-    ui: Ui,
+    ui_brush: TextBrush,
 
     depth_texture: Texture,
 
-    camera_uniform: camera::Uniform,
+    camera_uniform: Uniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
 
@@ -118,7 +120,14 @@ impl RenderState<'static> {
 
         let depth_texture = Texture::new_depth_texture(&device, &surface_config, "depth texture");
 
-        let ui = Ui::new(&device, &surface_config);
+        let font_data = include_bytes!("../fonts/Stacked pixel.ttf").to_vec();
+        let font = FontArc::try_from_vec(font_data).expect("unable to load font");
+        let ui_brush = BrushBuilder::using_font(font).build(
+            &device,
+            surface_config.width,
+            surface_config.height,
+            surface_config.format,
+        );
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
@@ -145,7 +154,7 @@ impl RenderState<'static> {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let camera_uniform = camera::Uniform::new();
+        let camera_uniform = Uniform::new();
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("camera buffer"),
@@ -379,7 +388,7 @@ impl RenderState<'static> {
             sky,
 
             selected_block: None,
-            ui,
+            ui_brush,
             depth_texture,
             camera_uniform,
             camera_buffer,
@@ -394,20 +403,7 @@ impl RenderState<'static> {
         }
     }
 
-    pub fn update(&mut self, dt: Duration, camera: &Camera, scene: &Scene, selected_block: Option<glam::IVec3>, selected_block_type: Type) {
-        let player_pos = camera.position();
-        let point = [player_pos.x as f64 / 384.0, player_pos.z as f64 / 384.0];
-        let blend_str = scene.chunks().terrain().biome_blend_string(point);
-
-        self.ui.update(
-            &player_pos,
-            scene.chunks().block_position(),
-            scene.chunks().chunk_position(),
-            selected_block_type,
-            blend_str,
-            dt,
-        );
-
+    pub fn update(&mut self, dt: Duration, camera: &Camera, scene: &Scene, selected_block: Option<glam::IVec3>) {
         self.update_chunk_buffers(scene);
 
         self.selected_block = selected_block;
@@ -520,11 +516,11 @@ impl RenderState<'static> {
             self.surface.configure(&self.device, &self.config);
             self.depth_texture =
                 Texture::new_depth_texture(&self.device, &self.config, "depth buffer");
-            self.ui.resize(new_size, &self.queue);
+            self.ui_brush.resize_view(new_size.width as f32, new_size.height as f32, &self.queue);
         }
     }
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self, ui: &Ui) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -653,7 +649,42 @@ impl RenderState<'static> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-            self.ui.render(&self.device, &self.queue, &mut ui_pass);
+            
+            let center = (self.size.width as f32 / 2.0, self.size.height as f32 / 2.0);
+            self.ui_brush
+                .queue(
+                    &self.device,
+                    &self.queue,
+                    vec![
+                        Section::default()
+                            .add_text(Text::new(&ui.player_position).with_scale(30.0))
+                            .with_screen_position((20.0, 20.0)),
+                        Section::default()
+                            .add_text(Text::new(&ui.block_position).with_scale(30.0))
+                            .with_screen_position((20.0, 55.0)),
+                        Section::default()
+                            .add_text(Text::new(&ui.chunk_position).with_scale(30.0))
+                            .with_screen_position((20.0, 90.0)),
+                        Section::default()
+                            .add_text(Text::new(&ui.fps_str).with_scale(30.0))
+                            .with_screen_position((900.0, 20.0)),
+                        Section::default()
+                            .add_text(
+                                Text::new(&ui.target)
+                                    .with_scale(48.0)
+                                    .with_color([0.0, 0.0, 0.0, 0.7]),
+                            )
+                            .with_screen_position(center),
+                        Section::default()
+                            .add_text(Text::new(&ui.selected_block).with_scale(30.0))
+                            .with_screen_position((20.0, 125.0)),
+                        Section::default()
+                            .add_text(Text::new(&ui.biome).with_scale(30.0))
+                            .with_screen_position((20.0, 160.0)),
+                    ],
+                )
+                .expect("failed to process UI queue");
+            self.ui_brush.draw(&mut ui_pass);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

@@ -34,12 +34,3 @@ it's written in rust.
       - Graphics settings: shadow quality, anti-aliasing.
 
 ## Tech Debt
-
-1. **Decouple UI from RenderState**: Currently, `RenderState` owns the `Ui`
-   struct and calculates game logic (like determining the player's current
-   biome) during its update loop. To adhere to a cleaner architecture, ownership
-   of the `Ui` should be lifted out into the main `Engine` struct in `lib.rs`.
-   The game loop should calculate state and update the UI, then simply pass the
-   `Ui` to `RenderState` to act as a "dumb" renderer.
-
-2. **Add more tests**: We have tests. we should have more tests.

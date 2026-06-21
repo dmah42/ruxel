@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use render_state::RenderState;
 use std::sync::Arc;
+use ui::Ui;
 use rand::Rng;
 use winit::{
     dpi::PhysicalSize,
@@ -44,6 +45,7 @@ pub struct Ruxel {
     received_mouse_motion: bool,
     last_cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
     selected_block_type: block::Type,
+    ui: Ui,
     config: config::Config,
     last_save_time: Instant,
 }
@@ -120,6 +122,7 @@ impl Ruxel {
         );
 
         let state = RenderState::new(config.clone(), window.clone()).await;
+        let ui = Ui::new();
 
         Ok(Self {
             event_loop: Some(event_loop),
@@ -133,6 +136,7 @@ impl Ruxel {
             received_mouse_motion: false,
             last_cursor_pos: None,
             selected_block_type: block::Type::Grass,
+            ui,
             config,
             last_save_time: Instant::now(),
         })
@@ -237,7 +241,21 @@ impl Ruxel {
         self.scene.update(dt, &self.camera);
         
         let selected_block = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE).map(|(pos, _)| pos);
-        self.state.update(dt, &self.camera, &self.scene, selected_block, selected_block_type);
+        
+        let player_pos = self.camera.position();
+        let point = [player_pos.x as f64 / 384.0, player_pos.z as f64 / 384.0];
+        let blend_str = self.scene.chunks().terrain().biome_blend_string(point);
+
+        self.ui.update(
+            &player_pos,
+            self.scene.chunks().block_position(),
+            self.scene.chunks().chunk_position(),
+            selected_block_type,
+            blend_str,
+            dt,
+        );
+        
+        self.state.update(dt, &self.camera, &self.scene, selected_block);
 
         if self.last_save_time.elapsed() > Duration::from_secs(5) {
             self.save_config();
@@ -277,7 +295,7 @@ impl Ruxel {
                     last_render_time = now;
                     let block_type = self.selected_block_type;
                     self.update(dt, block_type);
-                    match self.state.render() {
+                    match self.state.render(&self.ui) {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost) => self.state.resize(self.state.size),
                         Err(wgpu::SurfaceError::OutOfMemory) => {
