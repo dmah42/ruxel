@@ -3,9 +3,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use crate::lsystem;
+use crate::lsystem::{self, TreeType};
 use crate::poisson::AdaptivePoisson;
-use crate::terrain::{WorldTerrain, WATER_LEVEL};
+use crate::terrain::{Biome, WorldTerrain, WATER_LEVEL};
 
 pub(crate) struct EntityManager {
     loaded_cells: HashMap<UVec2, lsystem::EntityMesh>,
@@ -31,12 +31,18 @@ impl EntityManager {
                 let points = poisson.generate_for_chunk(chunk_x, chunk_z, &|p| terrain.get(p));
 
                 for pt in points {
-                    let (height, _biome) = terrain.get([pt.x as f64, pt.y as f64]);
+                    let (height, biome) = terrain.get([pt.x as f64, pt.y as f64]);
 
                     // Only spawn trees on land
                     if height > WATER_LEVEL {
+                        let tree_type = if biome == Biome::Desert {
+                            TreeType::Palm
+                        } else {
+                            TreeType::Default
+                        };
+
                         let position = Vec3::new(pt.x, height as f32, pt.y);
-                        let tree_mesh = lsystem::generate_l_system_tree(4, position);
+                        let tree_mesh = lsystem::generate_l_system_tree(tree_type, position);
 
                         let base_idx = mesh.vertices.len() as u32;
                         mesh.vertices.extend(tree_mesh.vertices);

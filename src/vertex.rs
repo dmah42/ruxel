@@ -11,6 +11,16 @@ pub struct Vertex {
 }
 
 impl Vertex {
+    #[cfg(test)]
+    pub fn position(&self) -> [f32; 3] {
+        self.position
+    }
+
+    #[cfg(test)]
+    pub fn color(&self) -> [u8; 4] {
+        self.color
+    }
+
     const ATTRIBS: [wgpu::VertexAttribute; 4] =
         wgpu::vertex_attr_array![0 => Float32x3, 1 => Uint32, 2 => Unorm8x4, 3 => Snorm8x4];
 

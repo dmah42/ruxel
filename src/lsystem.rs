@@ -1,6 +1,12 @@
 use crate::vertex::Vertex;
 use glam::{Quat, Vec3};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeType {
+    Default,
+    Palm,
+}
+
 pub struct EntityMesh {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
@@ -23,6 +29,8 @@ pub fn generate_l_system_string(axiom: &str, iterations: usize) -> String {
         for c in string.chars() {
             match c {
                 'X' => next.push_str("F[+X][-X][^X][&X]"),
+                'P' => next.push_str("FFFF[+Y][-Y][^Y][&Y][++Y][--Y][^^Y][&&Y]"),
+                'Y' => next.push('Y'), // Fronds don't recursively branch
                 'F' => next.push_str("FF"),
                 _ => next.push(c),
             }
@@ -41,8 +49,13 @@ struct BranchParams {
     color: [u8; 4],
 }
 
-pub fn generate_l_system_tree(iterations: usize, origin: Vec3) -> EntityMesh {
-    let string = generate_l_system_string("X", iterations);
+pub fn generate_l_system_tree(tree_type: TreeType, origin: Vec3) -> EntityMesh {
+    let (axiom, iterations, base_thickness) = match tree_type {
+        TreeType::Default => ("X", 4, 0.3),
+        TreeType::Palm => ("P", 2, 0.15),
+    };
+    
+    let string = generate_l_system_string(axiom, iterations);
 
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
@@ -54,7 +67,7 @@ pub fn generate_l_system_tree(iterations: usize, origin: Vec3) -> EntityMesh {
         dir: Vec3::Y,
         up: Vec3::Z,
         right: Vec3::X,
-        thickness: 0.3,
+        thickness: base_thickness,
         length: 1.0,
     };
     let mut stack = Vec::new();
@@ -65,7 +78,11 @@ pub fn generate_l_system_tree(iterations: usize, origin: Vec3) -> EntityMesh {
                 let end = state.pos + state.dir * state.length;
 
                 // Color: brown for trunk/branches
-                let color = [101, 67, 33, 255];
+                let color = match tree_type {
+                    TreeType::Default => [101, 67, 33, 255],
+                    TreeType::Palm => [210, 180, 140, 255], // Pale tan
+                };
+                
                 add_branch(
                     &mut vertices,
                     &mut indices,
@@ -111,7 +128,6 @@ pub fn generate_l_system_tree(iterations: usize, origin: Vec3) -> EntityMesh {
             'X' => {
                 // Draw a leaf at the end of the bud
                 let color = [34, 139, 34, 255]; // green
-                                                // leaf is just a bigger box at current pos
                 let leaf_pos = state.pos;
                 let leaf_end = leaf_pos + state.dir * 0.5;
                 add_branch(
@@ -126,6 +142,50 @@ pub fn generate_l_system_tree(iterations: usize, origin: Vec3) -> EntityMesh {
                         color,
                     },
                 );
+            }
+            'Y' => {
+                // Draw a long, drooping palm frond
+                let color = [46, 139, 87, 255]; // sea green
+                let mut current_pos = state.pos;
+                let mut current_dir = state.dir;
+                let mut current_up = state.up;
+                let mut current_right = state.right;
+                
+                let segments = 5;
+                let segment_length = 1.2;
+                
+                for i in 0..segments {
+                    let end = current_pos + current_dir * segment_length;
+                    // Taper the thickness of the frond towards the tip
+                    let thickness = 0.6 * (1.0 - (i as f32 / segments as f32) * 0.7);
+                    
+                    add_branch(
+                        &mut vertices,
+                        &mut indices,
+                        BranchParams {
+                            start: current_pos,
+                            end,
+                            up: current_up,
+                            right: current_right,
+                            thickness,
+                            color,
+                        },
+                    );
+                    current_pos = end;
+                    
+                    // Pitch down for the next segment (gravity/droop)
+                    let mut droop_axis = current_dir.cross(Vec3::NEG_Y);
+                    if droop_axis.length_squared() < 0.001 {
+                        droop_axis = current_right;
+                    } else {
+                        droop_axis = droop_axis.normalize();
+                    }
+                    
+                    let pitch_rot = Quat::from_axis_angle(droop_axis, angle * 0.4);
+                    current_dir = pitch_rot * current_dir;
+                    current_up = pitch_rot * current_up;
+                    current_right = pitch_rot * current_right;
+                }
             }
             _ => {}
         }
@@ -265,6 +325,8 @@ fn add_branch(vertices: &mut Vec<Vertex>, indices: &mut Vec<u32>, params: Branch
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::Write;
 
     #[test]
     fn test_lsystem_string_expansion() {
@@ -276,5 +338,43 @@ mod tests {
         // F becomes FF
         // X becomes F[+X][-X][^X][&X]
         assert!(iter_2.starts_with("FF[+F[+X]"));
+    }
+
+    #[test]
+    fn test_generate_palm_tree_obj() {
+        let mesh = generate_l_system_tree(TreeType::Palm, Vec3::ZERO);
+        let mut file = File::create("test_outputs/palm_tree.ply").unwrap();
+        
+        let num_faces = mesh.indices.len() / 3;
+        
+        // Write PLY header
+        writeln!(file, "ply").unwrap();
+        writeln!(file, "format ascii 1.0").unwrap();
+        writeln!(file, "element vertex {}", mesh.vertices.len()).unwrap();
+        writeln!(file, "property float x").unwrap();
+        writeln!(file, "property float y").unwrap();
+        writeln!(file, "property float z").unwrap();
+        writeln!(file, "property uchar red").unwrap();
+        writeln!(file, "property uchar green").unwrap();
+        writeln!(file, "property uchar blue").unwrap();
+        writeln!(file, "property uchar alpha").unwrap();
+        writeln!(file, "element face {}", num_faces).unwrap();
+        writeln!(file, "property list uchar int vertex_index").unwrap();
+        writeln!(file, "end_header").unwrap();
+        
+        // Write vertices with colors
+        for v in &mesh.vertices {
+            writeln!(
+                file,
+                "{} {} {} {} {} {} {}",
+                v.position()[0], v.position()[1], v.position()[2],
+                v.color()[0], v.color()[1], v.color()[2], v.color()[3]
+            ).unwrap();
+        }
+        
+        // Write faces
+        for chunk in mesh.indices.chunks(3) {
+            writeln!(file, "3 {} {} {}", chunk[0], chunk[1], chunk[2]).unwrap();
+        }
     }
 }
