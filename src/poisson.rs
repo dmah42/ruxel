@@ -2,6 +2,7 @@ use crate::terrain::{Biome, WATER_LEVEL};
 use glam::Vec2;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+#[derive(Clone)]
 pub(crate) struct AdaptivePoisson {
     seed: u32,
 }
@@ -21,12 +22,12 @@ impl AdaptivePoisson {
 
         match biome {
             Biome::Plains => 5.0, // Dense scrub
-            Biome::Hills => 8.0,  // Standard trees
+            Biome::Hills => 24.0, // Sparse large trees
             Biome::Mountains => {
                 if height > 120.0 {
                     f32::INFINITY // Above the tree line
                 } else {
-                    12.0 // Sparse pines
+                    12.0 // Standard pines
                 }
             }
             Biome::Desert => {

@@ -42,14 +42,14 @@ pub struct Scene {
     moon_offset: Vec3,
     lights: Lights,
     entity_manager: EntityManager,
-    load_radius: i32,
+    load_radius: u32,
 }
 
 impl Scene {
     pub fn new(seed: u32, config: Config) -> Self {
         let load_radius = config.chunk_load_radius;
         let chunks = Chunks::new(config.active_world.clone(), seed, load_radius);
-        let entity_manager = EntityManager::new(seed);
+        let entity_manager = EntityManager::new(seed, chunks.terrain().clone());
 
         // TODO: position sun relative to player always.
         let lights = Lights {
@@ -117,7 +117,8 @@ impl Scene {
     pub fn update(&mut self, dt: Duration, camera: &Camera) {
         let player_position = camera.position();
         self.chunks.update(&player_position);
-        self.entity_manager.update(&player_position, self.load_radius, self.chunks.terrain());
+        self.entity_manager
+            .update(&player_position, self.load_radius);
 
         let orbit_radius = camera.fog_end * 1.1;
 

@@ -1,7 +1,7 @@
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::collections::HashMap;
+use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CameraConfig {
@@ -18,7 +18,7 @@ pub struct WorldConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub chunk_load_radius: i32,
+    pub chunk_load_radius: u32,
     pub log_level: String,
     pub fov: f32,
     pub active_world: String,
@@ -31,7 +31,10 @@ impl Default for Config {
         let mut worlds = HashMap::new();
         worlds.insert(
             "funky_town".to_string(),
-            WorldConfig { seed: None, camera: None },
+            WorldConfig {
+                seed: None,
+                camera: None,
+            },
         );
 
         Self {
@@ -59,12 +62,18 @@ impl Config {
         };
 
         let mut needs_save = false;
-        
+
         // Ensure the active world exists in the map
-        let world_config = config.worlds.entry(config.active_world.clone()).or_insert_with(|| {
-            needs_save = true;
-            WorldConfig { seed: None, camera: None }
-        });
+        let world_config = config
+            .worlds
+            .entry(config.active_world.clone())
+            .or_insert_with(|| {
+                needs_save = true;
+                WorldConfig {
+                    seed: None,
+                    camera: None,
+                }
+            });
 
         if world_config.seed.is_none() {
             let mut rng = rand::thread_rng();

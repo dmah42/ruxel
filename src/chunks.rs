@@ -1,8 +1,9 @@
 use crate::{
     block::{self, Block},
-    terrain::{WorldTerrain, Biome},
+    terrain::{Biome, WorldTerrain},
 };
 use glam::{IVec2, UVec2, Vec3};
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
@@ -12,7 +13,6 @@ use std::{
     },
     thread::{self, JoinHandle},
 };
-use serde::{Serialize, Deserialize};
 
 pub const WATER_LEVEL: f32 = 32.0;
 
@@ -68,7 +68,7 @@ impl Drop for Chunks {
 }
 
 impl Chunks {
-    pub fn new(world_name: String, seed: u32, load_radius: i32) -> Self {
+    pub fn new(world_name: String, seed: u32, load_radius: u32) -> Self {
         let _ = std::fs::create_dir_all(format!("worlds/{}", world_name));
 
         // TODO: shut these down correctly.
@@ -109,13 +109,12 @@ impl Chunks {
             chunk_loader: Some(chunk_loader),
             loader_tx: Some(loader_tx),
 
-            load_radius,
+            load_radius: load_radius as i32,
             world_name,
 
             terrain,
         }
     }
-
 
     pub fn block_position(&self) -> &IVec2 {
         &self.block_position
@@ -202,7 +201,7 @@ impl Chunks {
                 if chunk_y < col.len() {
                     col[chunk_y].blocks[lx][ly][lz].set_type(block_type);
                     col[chunk_y].increment_version();
-                    
+
                     let path = format!("worlds/{}/chunk_{}_{}.bin", self.world_name, key.x, key.y);
                     if let Ok(data) = bincode::serialize(col) {
                         let _ = std::fs::write(&path, data);
@@ -319,38 +318,58 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
                     let point: [f64; 2] = [blockx as f64, blockz as f64];
                     let (height_f64, biome) = terrain.get(point);
                     let height = height_f64 as f32;
-                    
+
                     if (blocky as f32) < WATER_LEVEL && (blocky as f32) >= height {
                         block.set_type(block::Type::Water);
                     } else if (blocky as f32) < height {
-                        let hash = (blockx.wrapping_mul(31) ^ blocky.wrapping_mul(17) ^ blockz.wrapping_mul(23)) % 10;
+                        let hash = (blockx.wrapping_mul(31)
+                            ^ blocky.wrapping_mul(17)
+                            ^ blockz.wrapping_mul(23))
+                            % 10;
                         let dither = (hash as f32) - 5.0;
-                        
+
                         let btype = match biome {
                             Biome::Desert => {
-                                if (blocky as f32) > height - 4.0 + (dither * 0.5) { block::Type::Sand }
-                                else { block::Type::Rock }
-                            },
+                                if (blocky as f32) > height - 4.0 + (dither * 0.5) {
+                                    block::Type::Sand
+                                } else {
+                                    block::Type::Rock
+                                }
+                            }
                             Biome::Ocean => {
-                                if (blocky as f32) > height - 2.0 + (dither * 0.5) { block::Type::Sand }
-                                else { block::Type::Rock }
-                            },
+                                if (blocky as f32) > height - 2.0 + (dither * 0.5) {
+                                    block::Type::Sand
+                                } else {
+                                    block::Type::Rock
+                                }
+                            }
                             Biome::Plains | Biome::Hills => {
                                 if (blocky as f32) > height - 1.0 {
-                                    if height < WATER_LEVEL { block::Type::Sand }
-                                    else { block::Type::Grass }
+                                    if height < WATER_LEVEL {
+                                        block::Type::Sand
+                                    } else {
+                                        block::Type::Grass
+                                    }
+                                } else if (blocky as f32) > height - 4.0 + dither {
+                                    block::Type::Sand
+                                } else {
+                                    block::Type::Rock
                                 }
-                                else if (blocky as f32) > height - 4.0 + dither { block::Type::Sand }
-                                else { block::Type::Rock }
-                            },
+                            }
                             Biome::Mountains => {
-                                if blocky as f32 > 95.0 + dither { block::Type::Ice }
-                                else if blocky as f32 > 65.0 + dither { block::Type::Rock }
-                                else if (blocky as f32) > height - 1.0 {
-                                    if height < WATER_LEVEL { block::Type::Sand }
-                                    else { block::Type::Grass }
+                                if blocky as f32 > 95.0 + dither {
+                                    block::Type::Ice
+                                } else if blocky as f32 > 65.0 + dither {
+                                    block::Type::Rock
+                                } else if (blocky as f32) > height - 1.0 {
+                                    if height < WATER_LEVEL {
+                                        block::Type::Sand
+                                    } else {
+                                        block::Type::Grass
+                                    }
+                                } else {
+                                    block::Type::Rock
                                 }
-                                else { block::Type::Rock }
                             }
                         };
                         block.set_type(btype);

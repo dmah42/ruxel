@@ -419,7 +419,7 @@ impl HillsTerrain {
         let exponent = 1.0 + (mask_val * 3.5);
         let final_val = base_val.powf(exponent);
 
-        24.0 + final_val * 100.0
+        24.0 + final_val * 120.0
     }
 }
 

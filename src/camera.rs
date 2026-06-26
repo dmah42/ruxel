@@ -1,12 +1,9 @@
 use std::{f32::consts::FRAC_PI_2, time::Duration};
 
-use bytemuck::{Pod, Zeroable};
 use crate::chunks::WATER_LEVEL;
+use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
-use winit::{
-    event::ElementState,
-    keyboard::KeyCode,
-};
+use winit::{event::ElementState, keyboard::KeyCode};
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.001;
 const GRAVITY: f32 = 25.0;
@@ -92,7 +89,14 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn new(position: Vec3, yaw: f32, pitch: f32, aspect: f32, fov: f32, load_radius: i32) -> Self {
+    pub fn new(
+        position: Vec3,
+        yaw: f32,
+        pitch: f32,
+        aspect: f32,
+        fov: f32,
+        load_radius: u32,
+    ) -> Self {
         let fog_start = (load_radius as f32 - 0.5) * 16.0;
         let fog_end = load_radius as f32 * 16.0;
         let projection = Projection::new(aspect, fov.to_radians(), 0.1, fog_end * 1.5);
