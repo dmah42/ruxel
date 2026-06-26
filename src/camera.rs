@@ -7,7 +7,7 @@ use winit::{event::ElementState, keyboard::KeyCode};
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.001;
 const GRAVITY: f32 = 25.0;
-const PLAYER_HEIGHT: f32 = 2.6;
+const PLAYER_HEIGHT: f32 = 1.8;
 const SPEED: f32 = 6.0;
 const SENSITIVITY: f32 = 0.4;
 const JUMP_VELOCITY: f32 = 10.0;
