@@ -38,7 +38,21 @@ impl EntityManager {
                         let tree_type = match biome {
                             Biome::Desert => TreeType::Palm,
                             Biome::Plains => TreeType::Bush,
-                            Biome::Hills => if grove > 0.5 { TreeType::Birch } else { TreeType::Oak },
+                            Biome::Hills => {
+                                if grove > 0.5 {
+                                    TreeType::Birch
+                                } else {
+                                    TreeType::Oak
+                                }
+                            }
+                            Biome::Mountains => {
+                                let jitter = ((pt.x * 12.9898 + pt.y * 78.233).sin() * 10.0) as f64;
+                                if height > 100.0 + jitter {
+                                    TreeType::Pine
+                                } else {
+                                    TreeType::Birch
+                                }
+                            }
                             _ => TreeType::Default,
                         };
 

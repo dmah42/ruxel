@@ -10,6 +10,7 @@ pub enum TreeType {
     Bush,
     Birch,
     Oak,
+    Pine,
 }
 
 pub struct EntityMesh {
@@ -33,9 +34,14 @@ pub fn generate_l_system_string(axiom: &str, iterations: usize) -> String {
         let mut next = String::new();
         for c in string.chars() {
             match c {
+                'A' => next.push_str("TT[&&&B][////&&&B][\\\\&&&B]TT[//&&&B][//////&&&B][\\&&&B]A"),
+                'B' => next.push_str("TT[++L]L"),
+                'L' => next.push_str("TT[--B]&B"),
                 'X' => next.push_str("F[+X][-X][^X][&X]X"),
                 'O' => next.push_str("F[+^O]T[-^O]T[+&O]T[-&O]"),
-                'P' => next.push_str("FFFF[Y][\\^Y][\\\\^Y][\\\\\\^Y][\\\\\\\\^Y][/^Y][//^Y][///^Y]"),
+                'P' => {
+                    next.push_str("FFFF[Y][\\^Y][\\\\^Y][\\\\\\^Y][\\\\\\\\^Y][/^Y][//^Y][///^Y]")
+                }
                 'Y' => next.push('Y'), // Fronds don't recursively branch
                 'T' => next.push('T'), // Non-expanding trunk segment
                 'F' => next.push_str("FF"),
@@ -75,9 +81,16 @@ pub fn generate_l_system_tree(tree_type: TreeType, origin: Vec3) -> EntityMesh {
     let (axiom, iterations, angle, base_thickness, base_length) = match tree_type {
         TreeType::Default => ("X", 4, std::f32::consts::PI / 8.0, 0.3, 1.0),
         TreeType::Palm => ("P", 2, std::f32::consts::PI / 4.0, 0.15, 1.0),
-        TreeType::Bush => ("[+X][-X][^X][&X]", 3, std::f32::consts::PI / 6.0, 0.05, 0.15),
+        TreeType::Bush => (
+            "[+X][-X][^X][&X]",
+            3,
+            std::f32::consts::PI / 6.0,
+            0.05,
+            0.15,
+        ),
         TreeType::Birch => ("X", 4, std::f32::consts::PI / 8.0, 0.12, 0.8),
         TreeType::Oak => ("O", 5, std::f32::consts::PI / 4.0, 0.8, 0.2),
+        TreeType::Pine => ("A", 5, std::f32::consts::PI / 6.0, 0.3, 0.8),
     };
 
     let string = generate_l_system_string(axiom, iterations);
@@ -112,6 +125,7 @@ pub fn generate_l_system_tree(tree_type: TreeType, origin: Vec3) -> EntityMesh {
                     TreeType::Bush => [85, 107, 47, 255],   // Dark olive green
                     TreeType::Birch => [200, 200, 200, 255], // White/Grey
                     TreeType::Oak => [80, 50, 20, 255],     // Darker brown
+                    TreeType::Pine => [90, 60, 40, 255],    // Pine brown
                 };
                 let color = jitter_color(base_color, &mut rng, tree_color_jitter, 5);
 
@@ -167,12 +181,13 @@ pub fn generate_l_system_tree(tree_type: TreeType, origin: Vec3) -> EntityMesh {
                     state = s;
                 }
             }
-            'X' | 'O' => {
+            'X' | 'O' | 'B' | 'A' | 'L' => {
                 // Draw a leaf at the end of the bud
                 let base_color = match tree_type {
                     TreeType::Bush => [107, 142, 35, 255],  // Olive drab
                     TreeType::Birch => [173, 255, 47, 255], // Bright leaves
                     TreeType::Oak => [34, 110, 34, 255],    // Deep green
+                    TreeType::Pine => [20, 70, 20, 255],    // Pine needle dark green
                     _ => [34, 139, 34, 255],                // Default green
                 };
                 let color = jitter_color(base_color, &mut rng, tree_color_jitter, 10);
@@ -430,9 +445,9 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_palm_tree_obj() {
+    fn test_generate_palm_tree() {
         let mesh = generate_l_system_tree(TreeType::Palm, Vec3::ZERO);
-        let mut file = File::create("test_outputs/palm_tree.ply").unwrap();
+        let mut file = File::create("test_outputs/lsystem_palm.ply").unwrap();
 
         let num_faces = mesh.indices.len() / 3;
 
@@ -444,7 +459,7 @@ mod tests {
     #[test]
     fn test_generate_bush_ply() {
         let mesh = generate_l_system_tree(TreeType::Bush, Vec3::ZERO);
-        let mut file = File::create("test_outputs/bush.ply").unwrap();
+        let mut file = File::create("test_outputs/lsystem_bush.ply").unwrap();
 
         let num_faces = mesh.indices.len() / 3;
 
@@ -454,9 +469,9 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_birch_ply() {
+    fn test_generate_birch() {
         let mesh = generate_l_system_tree(TreeType::Birch, Vec3::ZERO);
-        let mut file = File::create("test_outputs/birch.ply").unwrap();
+        let mut file = File::create("test_outputs/lsystem_birch.ply").unwrap();
 
         let num_faces = mesh.indices.len() / 3;
 
@@ -466,14 +481,25 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_oak_ply() {
+    fn test_generate_oak() {
         let mesh = generate_l_system_tree(TreeType::Oak, Vec3::ZERO);
-        let mut file = File::create("test_outputs/oak.ply").unwrap();
+        let mut file = File::create("test_outputs/lsystem_oak.ply").unwrap();
 
         let num_faces = mesh.indices.len() / 3;
 
         write_ply_header(&mut file, mesh.vertices.len(), num_faces);
         write_vertices(&mut file, &mesh.vertices);
         write_faces(&mut file, &mesh.indices);
+    }
+
+    #[test]
+    fn test_generate_pine() {
+        let pine = generate_l_system_tree(TreeType::Pine, Vec3::ZERO);
+        let mut file = File::create("test_outputs/lsystem_pine.ply").unwrap();
+
+        let num_faces = pine.indices.len() / 3;
+        write_ply_header(&mut file, pine.vertices.len(), num_faces);
+        write_vertices(&mut file, &pine.vertices);
+        write_faces(&mut file, &pine.indices);
     }
 }
