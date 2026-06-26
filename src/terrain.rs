@@ -161,7 +161,7 @@ impl WorldTerrain {
 
     pub const WORLD_SCALE: f64 = 384.0;
 
-    pub fn get(&self, world_point: [f64; 2]) -> (f64, Biome) {
+    pub fn get(&self, world_point: [f64; 2]) -> (f64, Biome, f64) {
         let point = [
             world_point[0] / Self::WORLD_SCALE,
             world_point[1] / Self::WORLD_SCALE,
@@ -174,11 +174,17 @@ impl WorldTerrain {
         }
 
         let mut land_height = 0.0;
+        let mut grove_noise = 0.0;
+
         if weights.plains > 0.0 {
             land_height += weights.plains * self.plains.get(point);
         }
         if weights.hills > 0.0 {
-            land_height += weights.hills * self.hills.get(point);
+            let (h, g) = self.hills.get(point);
+            land_height += weights.hills * h;
+            if primary_biome == Biome::Hills {
+                grove_noise = g;
+            }
         }
         if weights.desert > 0.0 {
             land_height += weights.desert * self.desert.get(point);
@@ -207,7 +213,7 @@ impl WorldTerrain {
             }
         };
 
-        (final_height, primary_biome)
+        (final_height, primary_biome, grove_noise)
     }
 
     pub fn is_pure_biome(&self, point: [f64; 2], target: Biome) -> bool {
@@ -385,6 +391,7 @@ pub(crate) struct HillsTerrain {
     base_bound: f64,
     mask_noise: Fbm<Perlin>,
     mask_bound: f64,
+    grove_noise: Fbm<Perlin>,
 }
 
 impl HillsTerrain {
@@ -406,10 +413,14 @@ impl HillsTerrain {
                 .set_persistence(mask_persistence)
                 .set_octaves(mask_octaves),
             mask_bound: fbm_bound(mask_octaves, mask_persistence),
+            grove_noise: Fbm::<Perlin>::new(seed.wrapping_add(25))
+                .set_frequency(0.02)
+                .set_octaves(2)
+                .set_persistence(0.5),
         }
     }
 
-    pub(crate) fn get(&self, point: [f64; 2]) -> f64 {
+    pub(crate) fn get(&self, point: [f64; 2]) -> (f64, f64) {
         let base_raw = self.base_noise.get(point);
         let mask_raw = self.mask_noise.get(point);
 
@@ -419,7 +430,12 @@ impl HillsTerrain {
         let exponent = 1.0 + (mask_val * 3.5);
         let final_val = base_val.powf(exponent);
 
-        24.0 + final_val * 120.0
+        let height = 24.0 + final_val * 120.0;
+
+        let grove_raw = self.grove_noise.get(point);
+        let grove_val = (grove_raw + 1.0) / 2.0;
+
+        (height, grove_val)
     }
 }
 
@@ -587,6 +603,7 @@ impl DesertTerrain {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const TEST_GRID_SIZE: u32 = 4096;
 
     #[test]
     fn test_terraced_noise_blend() {
@@ -632,7 +649,7 @@ mod tests {
 
         let mut biome_counts = std::collections::HashMap::new();
 
-        let grid_size = 10000;
+        let grid_size = 2 * TEST_GRID_SIZE;
         let mut img = image::RgbImage::new(grid_size as u32, grid_size as u32);
 
         for x in 0..grid_size {
@@ -715,7 +732,7 @@ mod tests {
     #[test]
     fn test_continent_map() {
         let terrain = WorldTerrain::new(12345);
-        let grid_size = 10000;
+        let grid_size = 2 * TEST_GRID_SIZE;
         let mut img = image::ImageBuffer::new(grid_size as u32, grid_size as u32);
 
         let mut ocean_blocks = 0;
@@ -758,16 +775,18 @@ mod tests {
     #[test]
     fn test_biome_heightmap_plains() {
         let plains = PlainsTerrain::new(123);
-        let grid_size = 500;
-        let mut img = image::ImageBuffer::new(grid_size as u32, grid_size as u32);
-        for x in 0..grid_size {
-            for z in 0..grid_size {
-                let h = plains.get([x as f64 / 100.0, z as f64 / 100.0]);
+        let mut img = image::ImageBuffer::new(TEST_GRID_SIZE as u32, TEST_GRID_SIZE as u32);
+        for x in 0..TEST_GRID_SIZE {
+            for z in 0..TEST_GRID_SIZE {
+                let h = plains.get([
+                    x as f64 / WorldTerrain::WORLD_SCALE,
+                    z as f64 / WorldTerrain::WORLD_SCALE,
+                ]);
                 if h <= WATER_LEVEL {
-                    let b = 255 - ((WATER_LEVEL - h).clamp(0.0, 30.0) as u8 * 4);
+                    let b = 255 - ((WATER_LEVEL - h) as u8);
                     img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
                 } else {
-                    let c = (h.clamp(0.0, 100.0) * 2.55) as u8;
+                    let c = h as u8;
                     img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
                 }
             }
@@ -779,16 +798,18 @@ mod tests {
     #[test]
     fn test_biome_heightmap_mountains() {
         let mountains = MountainTerrain::new(123);
-        let grid_size = 500;
-        let mut img = image::ImageBuffer::new(grid_size as u32, grid_size as u32);
-        for x in 0..grid_size {
-            for z in 0..grid_size {
-                let h = mountains.get([x as f64 / 100.0, z as f64 / 100.0]);
+        let mut img = image::ImageBuffer::new(TEST_GRID_SIZE as u32, TEST_GRID_SIZE as u32);
+        for x in 0..TEST_GRID_SIZE {
+            for z in 0..TEST_GRID_SIZE {
+                let h = mountains.get([
+                    x as f64 / WorldTerrain::WORLD_SCALE,
+                    z as f64 / WorldTerrain::WORLD_SCALE,
+                ]);
                 if h <= WATER_LEVEL {
-                    let b = 255 - ((WATER_LEVEL - h).clamp(0.0, 30.0) as u8 * 4);
+                    let b = 255 - ((WATER_LEVEL - h) as u8);
                     img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
                 } else {
-                    let c = (h.clamp(0.0, 150.0) * 1.7) as u8;
+                    let c = h as u8;
                     img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
                 }
             }
@@ -800,16 +821,18 @@ mod tests {
     #[test]
     fn test_biome_heightmap_desert() {
         let desert = DesertTerrain::new(123);
-        let grid_size = 500;
-        let mut img = image::ImageBuffer::new(grid_size as u32, grid_size as u32);
-        for x in 0..grid_size {
-            for z in 0..grid_size {
-                let h = desert.get([x as f64 / 100.0, z as f64 / 100.0]);
+        let mut img = image::ImageBuffer::new(TEST_GRID_SIZE as u32, TEST_GRID_SIZE as u32);
+        for x in 0..TEST_GRID_SIZE {
+            for z in 0..TEST_GRID_SIZE {
+                let h = desert.get([
+                    x as f64 / WorldTerrain::WORLD_SCALE,
+                    z as f64 / WorldTerrain::WORLD_SCALE,
+                ]);
                 if h <= WATER_LEVEL {
-                    let b = 255 - ((WATER_LEVEL - h).clamp(0.0, 30.0) as u8 * 4);
+                    let b = 255 - ((WATER_LEVEL - h) as u8);
                     img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
                 } else {
-                    let c = (h.clamp(0.0, 100.0) * 2.55) as u8;
+                    let c = h as u8;
                     img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
                 }
             }
@@ -821,16 +844,21 @@ mod tests {
     #[test]
     fn test_biome_heightmap_hills() {
         let hills = HillsTerrain::new(123);
-        let grid_size = 500;
-        let mut img = image::ImageBuffer::new(grid_size as u32, grid_size as u32);
-        for x in 0..grid_size {
-            for z in 0..grid_size {
-                let h = hills.get([x as f64 / 100.0, z as f64 / 100.0]);
+        let mut img = image::ImageBuffer::new(TEST_GRID_SIZE as u32, TEST_GRID_SIZE as u32);
+        for x in 0..TEST_GRID_SIZE {
+            for z in 0..TEST_GRID_SIZE {
+                let (h, grove) = hills.get([
+                    (x as f64) / WorldTerrain::WORLD_SCALE,
+                    (z as f64) / WorldTerrain::WORLD_SCALE,
+                ]);
                 if h <= WATER_LEVEL {
-                    let b = 255 - ((WATER_LEVEL - h).clamp(0.0, 30.0) as u8 * 4);
+                    let b = 255 - ((WATER_LEVEL - h) as u8);
                     img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
+                } else if grove > 0.5 {
+                    let g = h as u8;
+                    img.put_pixel(x as u32, z as u32, image::Rgb([50, g, 80]));
                 } else {
-                    let c = (h.clamp(0.0, 120.0) * 2.12) as u8;
+                    let c = h as u8;
                     img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
                 }
             }

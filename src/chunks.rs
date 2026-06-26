@@ -316,7 +316,7 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
                     let blocky = (y as u32) + (16 * chunky);
                     let blockz = (z as u32) + (16 * key.y);
                     let point: [f64; 2] = [blockx as f64, blockz as f64];
-                    let (height_f64, biome) = terrain.get(point);
+                    let (height_f64, biome, _) = terrain.get(point);
                     let height = height_f64 as f32;
 
                     if (blocky as f32) < WATER_LEVEL && (blocky as f32) >= height {

@@ -31,13 +31,14 @@ impl EntityManager {
                 let points = poisson.generate_for_chunk(chunk_x, chunk_z, &|p| terrain.get(p));
 
                 for pt in points {
-                    let (height, biome) = terrain.get([pt.x as f64, pt.y as f64]);
+                    let (height, biome, grove) = terrain.get([pt.x as f64, pt.y as f64]);
 
                     // Only spawn trees on land
                     if height > WATER_LEVEL {
                         let tree_type = match biome {
                             Biome::Desert => TreeType::Palm,
                             Biome::Plains => TreeType::Bush,
+                            Biome::Hills => if grove > 0.5 { TreeType::Birch } else { TreeType::Oak },
                             _ => TreeType::Default,
                         };
 

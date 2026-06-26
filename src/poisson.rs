@@ -14,7 +14,7 @@ impl AdaptivePoisson {
 
     fn get_radius<F>(height: f64, biome: &Biome, point: [f64; 2], terrain_func: &F) -> f32
     where
-        F: Fn([f64; 2]) -> (f64, Biome),
+        F: Fn([f64; 2]) -> (f64, Biome, f64),
     {
         if height <= WATER_LEVEL && *biome != Biome::Desert {
             return f32::INFINITY;
@@ -22,7 +22,14 @@ impl AdaptivePoisson {
 
         match biome {
             Biome::Plains => 5.0, // Dense scrub
-            Biome::Hills => 24.0, // Sparse large trees
+            Biome::Hills => {
+                let (_, _, grove_noise) = terrain_func(point);
+                if grove_noise > 0.5 {
+                    10.0 // Dense birch stands
+                } else {
+                    40.0 // Very sparse, large oaks
+                }
+            }
             Biome::Mountains => {
                 if height > 120.0 {
                     f32::INFINITY // Above the tree line
@@ -46,7 +53,7 @@ impl AdaptivePoisson {
                     ];
 
                     let water_nearby = points_to_check.iter().any(|&p| {
-                        let (h, _) = terrain_func(p);
+                        let (h, _, _) = terrain_func(p);
                         h <= WATER_LEVEL
                     });
 
@@ -86,7 +93,7 @@ impl AdaptivePoisson {
         terrain_func: &F,
     ) -> Vec<Vec2>
     where
-        F: Fn([f64; 2]) -> (f64, Biome),
+        F: Fn([f64; 2]) -> (f64, Biome, f64),
     {
         let mut points = Vec::new();
         let cell_size = 3.5;
@@ -112,7 +119,7 @@ impl AdaptivePoisson {
                     continue;
                 }
 
-                let (height, biome) = terrain_func([p.x as f64, p.y as f64]);
+                let (height, biome, _) = terrain_func([p.x as f64, p.y as f64]);
                 let r = Self::get_radius(height, &biome, [p.x as f64, p.y as f64], terrain_func);
 
                 if r.is_infinite() {
@@ -136,7 +143,7 @@ impl AdaptivePoisson {
 
                         let (np, nh) = self.get_cell_point(nx, nz);
 
-                        let (n_height, n_biome) = terrain_func([np.x as f64, np.y as f64]);
+                        let (n_height, n_biome, _) = terrain_func([np.x as f64, np.y as f64]);
                         let nr = Self::get_radius(
                             n_height,
                             &n_biome,
@@ -179,8 +186,9 @@ mod tests {
         let terrain = WorldTerrain::new(12345);
         let poisson = AdaptivePoisson::new(12345);
 
-        let points_a = poisson.generate_for_chunk(10, 5, &|p| terrain.get(p));
-        let points_b = poisson.generate_for_chunk(10, 5, &|p| terrain.get(p));
+        let terrain_func = |p: [f64; 2]| terrain.get(p);
+        let points_a = poisson.generate_for_chunk(10, 5, &terrain_func);
+        let points_b = poisson.generate_for_chunk(10, 5, &terrain_func);
 
         assert_eq!(points_a.len(), points_b.len());
         for (a, b) in points_a.iter().zip(points_b.iter()) {
@@ -191,7 +199,7 @@ mod tests {
 
     fn generate_biome_bitmap<F>(target_biome: Biome, filename: &str, terrain_func: F)
     where
-        F: Fn([f64; 2]) -> (f64, Biome),
+        F: Fn([f64; 2]) -> (f64, Biome, f64),
     {
         let poisson = AdaptivePoisson::new(12345);
         let width = 4096;
@@ -201,7 +209,7 @@ mod tests {
         // Fill background with heightmap
         for x in 0..width {
             for z in 0..height {
-                let (h, _biome) = terrain_func([x as f64, z as f64]);
+                let (h, _biome, grove_noise) = terrain_func([x as f64, z as f64]);
                 if h <= WATER_LEVEL {
                     // Distinct blue for water
                     let depth = (WATER_LEVEL - h).clamp(0.0, 30.0);
@@ -210,11 +218,19 @@ mod tests {
                 } else {
                     // Dimmer gray for land
                     let intensity = ((h - WATER_LEVEL) / 80.0 * 255.0).clamp(0.0, 255.0) as u8;
-                    img.put_pixel(
-                        x,
-                        z,
-                        image::Rgb([intensity / 2 + 30, intensity / 2 + 30, intensity / 2 + 30]),
-                    );
+                    if grove_noise > 0.5 {
+                        img.put_pixel(x, z, image::Rgb([intensity / 2, intensity, intensity / 2]));
+                    } else {
+                        img.put_pixel(
+                            x,
+                            z,
+                            image::Rgb([
+                                intensity / 2 + 30,
+                                intensity / 2 + 30,
+                                intensity / 2 + 30,
+                            ]),
+                        );
+                    }
                 }
             }
         }
@@ -263,7 +279,7 @@ mod tests {
         generate_biome_bitmap(
             Biome::Plains,
             "test_outputs/poisson_bitmap_plains.bmp",
-            |p| (gen.get([p[0] / scale, p[1] / scale]), Biome::Plains),
+            |p| (gen.get([p[0] / scale, p[1] / scale]), Biome::Plains, 0.0),
         );
     }
 
@@ -274,7 +290,7 @@ mod tests {
         generate_biome_bitmap(
             Biome::Mountains,
             "test_outputs/poisson_bitmap_mountains.bmp",
-            |p| (gen.get([p[0] / scale, p[1] / scale]), Biome::Mountains),
+            |p| (gen.get([p[0] / scale, p[1] / scale]), Biome::Mountains, 0.0),
         );
     }
 
@@ -283,7 +299,8 @@ mod tests {
         let gen = crate::terrain::HillsTerrain::new(42);
         let scale = crate::terrain::WorldTerrain::WORLD_SCALE;
         generate_biome_bitmap(Biome::Hills, "test_outputs/poisson_bitmap_hills.bmp", |p| {
-            (gen.get([p[0] / scale, p[1] / scale]), Biome::Hills)
+            let (h, grove) = gen.get([p[0] / scale, p[1] / scale]);
+            (h, Biome::Hills, grove)
         });
     }
 
@@ -294,7 +311,7 @@ mod tests {
         generate_biome_bitmap(
             Biome::Desert,
             "test_outputs/poisson_bitmap_desert.bmp",
-            |p| (gen.get([p[0] / scale, p[1] / scale]), Biome::Desert),
+            |p| (gen.get([p[0] / scale, p[1] / scale]), Biome::Desert, 0.0),
         );
     }
 }
