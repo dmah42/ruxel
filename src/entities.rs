@@ -7,6 +7,8 @@ use crate::lsystem::{self, TreeType};
 use crate::poisson::AdaptivePoisson;
 use crate::terrain::{Biome, WorldTerrain, WATER_LEVEL};
 
+const BUSH_MAX_HEIGHT: f64 = 50.0;
+
 pub(crate) struct EntityManager {
     loaded_cells: HashMap<UVec2, lsystem::EntityMesh>,
     pub(crate) version: u32,
@@ -15,55 +17,87 @@ pub(crate) struct EntityManager {
     in_flight: HashSet<UVec2>,
 }
 
+fn generate_entities_for_chunk(
+    seed: u32,
+    chunk_x: u32,
+    chunk_z: u32,
+    terrain: &WorldTerrain,
+) -> Vec<(Vec3, TreeType)> {
+    let mut entities = Vec::new();
+    let poisson = AdaptivePoisson::new(seed);
+
+    let points = poisson.generate_for_chunk(chunk_x, chunk_z, &|p| terrain.get(p));
+
+    for pt in points {
+        let (height, biome, grove) = terrain.get([pt.x as f64, pt.y as f64]);
+
+        if height > WATER_LEVEL {
+            let tree_type = match biome {
+                Biome::Desert => TreeType::Palm,
+                Biome::Plains => TreeType::Bush,
+                Biome::Hills => {
+                    if grove > 0.5 {
+                        TreeType::Birch
+                    } else {
+                        TreeType::Oak
+                    }
+                }
+                Biome::Mountains => {
+                    let jitter = ((pt.x * 12.9898 + pt.y * 78.233).sin() * 10.0) as f64;
+                    if height > 100.0 + jitter {
+                        TreeType::Pine
+                    } else {
+                        TreeType::Birch
+                    }
+                }
+                _ => TreeType::Default,
+            };
+
+            let position = Vec3::new(pt.x, height as f32, pt.y);
+            entities.push((position, tree_type));
+        }
+    }
+
+    // Pass 2: Bushes in Hills and Mountains
+    let bush_poisson = AdaptivePoisson::new(seed.wrapping_add(1337));
+    let bush_points = bush_poisson.generate_for_chunk(chunk_x, chunk_z, &|p| terrain.get(p));
+
+    for pt in bush_points {
+        let (height, biome, _) = terrain.get([pt.x as f64, pt.y as f64]);
+
+        if height > WATER_LEVEL && height < BUSH_MAX_HEIGHT {
+            let should_spawn = matches!(biome, Biome::Hills | Biome::Mountains);
+
+            if should_spawn {
+                let position = Vec3::new(pt.x, height as f32, pt.y);
+                entities.push((position, TreeType::Bush));
+            }
+        }
+    }
+
+    entities
+}
+
 impl EntityManager {
     pub fn new(seed: u32, terrain: WorldTerrain) -> Self {
         let (task_tx, task_rx) = mpsc::channel::<(u32, u32)>();
         let (result_tx, result_rx) = mpsc::channel();
 
         thread::spawn(move || {
-            let poisson = AdaptivePoisson::new(seed);
             while let Ok((chunk_x, chunk_z)) = task_rx.recv() {
                 let mut mesh = lsystem::EntityMesh {
                     vertices: Vec::new(),
                     indices: Vec::new(),
                 };
 
-                let points = poisson.generate_for_chunk(chunk_x, chunk_z, &|p| terrain.get(p));
+                let entities = generate_entities_for_chunk(seed, chunk_x, chunk_z, &terrain);
 
-                for pt in points {
-                    let (height, biome, grove) = terrain.get([pt.x as f64, pt.y as f64]);
-
-                    // Only spawn trees on land
-                    if height > WATER_LEVEL {
-                        let tree_type = match biome {
-                            Biome::Desert => TreeType::Palm,
-                            Biome::Plains => TreeType::Bush,
-                            Biome::Hills => {
-                                if grove > 0.5 {
-                                    TreeType::Birch
-                                } else {
-                                    TreeType::Oak
-                                }
-                            }
-                            Biome::Mountains => {
-                                let jitter = ((pt.x * 12.9898 + pt.y * 78.233).sin() * 10.0) as f64;
-                                if height > 100.0 + jitter {
-                                    TreeType::Pine
-                                } else {
-                                    TreeType::Birch
-                                }
-                            }
-                            _ => TreeType::Default,
-                        };
-
-                        let position = Vec3::new(pt.x, height as f32, pt.y);
-                        let tree_mesh = lsystem::generate_l_system_tree(tree_type, position);
-
-                        let base_idx = mesh.vertices.len() as u32;
-                        mesh.vertices.extend(tree_mesh.vertices);
-                        mesh.indices
-                            .extend(tree_mesh.indices.into_iter().map(|i| i + base_idx));
-                    }
+                for (position, tree_type) in entities {
+                    let tree_mesh = lsystem::generate_l_system_tree(tree_type, position);
+                    let base_idx = mesh.vertices.len() as u32;
+                    mesh.vertices.extend(tree_mesh.vertices);
+                    mesh.indices
+                        .extend(tree_mesh.indices.into_iter().map(|i| i + base_idx));
                 }
 
                 if result_tx
@@ -201,5 +235,76 @@ mod tests {
         } else {
             assert_eq!(em.version, 1, "Version should bump for populated chunks");
         }
+    }
+
+    #[test]
+    fn test_entity_generation_bitmap() {
+        let terrain = WorldTerrain::new(12345);
+        let width = 10000;
+        let height = 10000;
+        let mut img = image::ImageBuffer::new(width, height);
+
+        // Fill background with heightmap
+        for x in 0..width {
+            for z in 0..height {
+                let (h, _biome, grove_noise) = terrain.get([x as f64, z as f64]);
+                if h <= crate::terrain::WATER_LEVEL {
+                    let depth = (crate::terrain::WATER_LEVEL - h).clamp(0.0, 30.0);
+                    let b = 255 - (depth as u8 * 4);
+                    img.put_pixel(x, z, image::Rgb([0, 0, b]));
+                } else {
+                    let intensity =
+                        ((h - crate::terrain::WATER_LEVEL) / 80.0 * 255.0).clamp(0.0, 255.0) as u8;
+                    if grove_noise > 0.5 {
+                        img.put_pixel(x, z, image::Rgb([intensity / 2, intensity, intensity / 2]));
+                    } else {
+                        img.put_pixel(
+                            x,
+                            z,
+                            image::Rgb([
+                                intensity / 2 + 30,
+                                intensity / 2 + 30,
+                                intensity / 2 + 30,
+                            ]),
+                        );
+                    }
+                }
+            }
+        }
+
+        let chunk_count_w = width / 16;
+        let chunk_count_h = height / 16;
+        for cx in 0..chunk_count_w {
+            for cz in 0..chunk_count_h {
+                let entities = generate_entities_for_chunk(12345, cx, cz, &terrain);
+
+                for (p, tree_type) in entities {
+                    let px = p.x.round() as u32;
+                    let pz = p.z.round() as u32;
+
+                    if px < width && pz < height {
+                        let color: [u8; 3] = match tree_type {
+                            TreeType::Bush => [85, 107, 47],    // Dark Olive
+                            TreeType::Palm => [255, 255, 0],    // Yellow
+                            TreeType::Pine => [200, 200, 200],  // Grey/White
+                            TreeType::Birch => [255, 255, 255], // White
+                            TreeType::Oak => [100, 255, 100],   // Light green
+                            TreeType::Default => [255, 0, 0],   // Red
+                        };
+
+                        for dx in -1..=1 {
+                            for dz in -1..=1 {
+                                let dx_px = (px as i32 + dx).clamp(0, width as i32 - 1) as u32;
+                                let dz_pz = (pz as i32 + dz).clamp(0, height as i32 - 1) as u32;
+                                img.put_pixel(dx_px, dz_pz, image::Rgb(color));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        img.save("test_outputs/entity_generation_map.bmp")
+            .expect("Failed to save entity generation map");
     }
 }
