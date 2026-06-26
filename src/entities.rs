@@ -35,10 +35,10 @@ impl EntityManager {
 
                     // Only spawn trees on land
                     if height > WATER_LEVEL {
-                        let tree_type = if biome == Biome::Desert {
-                            TreeType::Palm
-                        } else {
-                            TreeType::Default
+                        let tree_type = match biome {
+                            Biome::Desert => TreeType::Palm,
+                            Biome::Plains => TreeType::Bush,
+                            _ => TreeType::Default,
                         };
 
                         let position = Vec3::new(pt.x, height as f32, pt.y);
