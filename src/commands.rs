@@ -1,4 +1,4 @@
-use crate::{camera::Camera, scene::Scene, console::TimeOfDay};
+use crate::{camera::Camera, console::TimeOfDay, scene::Scene};
 use glam::Vec3;
 
 pub(crate) fn execute_teleport(camera: &mut Camera, x: f32, y: f32, z: f32) -> String {
@@ -48,7 +48,7 @@ pub(crate) fn execute_find_biome(scene: &mut Scene, camera: &Camera, biome_name:
             let dist =
                 ((px - start_pos.x as f64).powi(2) + (pz - start_pos.z as f64).powi(2)).sqrt();
             format!(
-                "Found 100% {} at {:.0}, {:.0}, {:.0} ({:.0} blocks away)",
+                "Found 100% {} at {:.0} {:.0} {:.0} ({:.0} blocks away)",
                 biome_name, px, height, pz, dist
             )
         }

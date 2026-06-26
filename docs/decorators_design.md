@@ -4,9 +4,10 @@ This document represents the uncompromisingly detailed architectural blueprint f
 
 The choice between **Path A (Voxels)** and **Path B (Entities)** dictates the entire pipeline. Both paths share the same inventory loop: destroying the tree yields items (e.g., "Wood"), which the player can place as standard voxel blocks to build structures.
 
+**DECISION LOCKED IN:** We have chosen **Path B (Entities)** as the primary architectural direction for decorators
 ---
 
-# PATH A: The Pure Voxel Architecture
+# PATH A (deprecated): The Pure Voxel Architecture
 
 Decorators are specific arrangements of integer Block IDs (e.g., `OakWood`, `Leaves`) injected directly into the `Chunk`'s 3D data array (`chunk.blocks[x][y][z]`). The engine treats them identically to dirt or stone.
 
@@ -49,7 +50,7 @@ Since we are using 3D cubes, we must procedurally generate textures for all 6 fa
 
 ---
 
-# PATH B: The Entity / Mesh Architecture
+# PATH B (LOCKED): The Entity / Mesh Architecture
 
 In this path, decorators are independent 3D objects (meshes) managed by a Scene Graph or Entity Component System. They sit *on top of* or *inside* the voxel terrain.
 
@@ -67,13 +68,10 @@ There is no "Chunk Boundary Problem" here because entities do not inject data in
 
 Density is driven by biome weights identically to Path A, but the output coordinate applies to an Entity Transform using continuous float space. Outputting continuous floats allows for sub-voxel micro-translations and arbitrary rotation (e.g., leaning trees, randomized yaw). This looks highly organic, though it creates a visual distinction between the fluid placement of nature and the rigid, integer-locked placement of player voxel buildings.
 
-## B.3 Geometry, Rendering, and the "Wild Idea"
+## B.3 Geometry & Rendering
 
-* **Geometry Generation (L-Systems vs SDFs):**
-  * *L-Systems (Recommended):* Excellent for generating line segments that are easily lofted into cylinders/polygons. These output standard vertex buffers natively compatible with our existing `wgpu` rasterization pipeline.
-  * *Signed Distance Fields (SDFs):* SDFs are mathematically elegant but require a Raymarching renderer. Our engine uses standard rasterization. To use SDFs, we would have to run a Marching Cubes algorithm on the CPU to convert the SDF math into a standard polygonal mesh before rendering, which is slow compared to L-systems.
+* **Geometry Generation (L-Systems):** Excellent for generating line segments that are easily lofted into cylinders/polygons. These output standard vertex buffers natively compatible with our existing `wgpu` rasterization pipeline.
 * **Rendering:** Trees are rendered via Instanced Rendering or separate draw calls outside the chunk mesher.
-* **Speculation: Converting `ruxel` to a Raymarching Engine:** To support SDFs natively, we would throw out the `wgpu` greedy meshing CPU code and upload the entire 3D chunk array to the GPU as a 3D Texture (Volume Data). We render a single full-screen quad. The fragment shader casts a ray per pixel, traversing the voxel 3D texture using a fast DDA algorithm. Simultaneously, the ray evaluates mathematical SDF functions (e.g., `sdCapsule` for branches). The shader returns the color of whichever it hits first: a voxel or the SDF surface. This provides infinite procedural detail and mathematically trivial shadows, but requires a massive engine rewrite and handles transparent secondary ray bounces poorly at high resolutions.
 
 ## B.4 Procedural Asset Pipeline
 
@@ -86,8 +84,61 @@ Density is driven by biome weights identically to Path A, but the output coordin
 Harvesting yields inventory items (e.g., "Wood Block" items). The player can place these blocks to build a cabin, but the player's cabin will look blocky (Path A-style voxels), while the natural trees look smooth (Path B meshes).
 
 * **Destructibility:** Upon harvesting, the *entire entity* is destroyed instantly. You cannot carve a hole through the leaves or chop "half" of the trunk because it is a single unified mesh.
-* **How does Raycasting work in a Raymarching Engine?**
-    It is crucial to differentiate **GPU Visual Raymarching** from **CPU Logical Raycasting**. Even if we rewrite the renderer to use Raymarching on the GPU, the interaction logic (where the player is aiming and clicking) still runs on the CPU.
-  * *If using L-System Meshes:* The CPU performs standard bounding-box or AABB (Axis-Aligned Bounding Box) intersection tests against the player's look-vector to determine what they hit.
-  * *If using SDFs:* Raycasting actually becomes *more* efficient. The CPU has a copy of the mathematical SDF function. To check if the player's look-vector hits the tree, the CPU simply evaluates the SDF distance function along the vector line. If the distance ever drops below 0, it counts as a hit. The rendering technique (rasterization vs raymarching) does not break CPU interaction logic.
+* **Interaction (Raycasting):** The CPU performs standard bounding-box or AABB (Axis-Aligned Bounding Box) intersection tests against the player's look-vector to determine if they hit a procedural tree mesh.
 * **Physics:** Entities natively support rigid body physics in game engines. When chopped, the Tree Entity can become a dynamic rigid body that tips over and falls to the ground smoothly before despawning and converting into inventory item drops, without any of the immense CPU load required to calculate falling physics for 100 individual voxel blocks.
+
+---
+
+# Phased Implementation Plan: Path B Decorators
+
+This plan outlines the rigorous architectural roadmap for integrating **Path B (Entity/Mesh Architecture)** decorators into `ruxel`.
+
+## Proposed Changes
+
+### Phase 1: Spatial Management & Poisson Disk Spawning
+
+Entities must be spawned deterministically based on continuous coordinates and managed via a spatial grid.
+
+* **[NEW] `src/poisson.rs`:** Implement an Adaptive Poisson Disk Sampling algorithm. The algorithm evaluates the `WorldTerrain` biome weight at `(x, z)` to dynamically determine the minimum distance radius `r` between generated points.
+* **[NEW] `src/entities.rs`:** Create an `EntityManager`. It divides the world into spatial cells (matching the 16x16 chunk grid). When a cell loads, it deterministically seeds the RNG (e.g., `hash(world_seed, cell_x, cell_z)`) and runs the Poisson sampler to generate tree origins.
+
+### Phase 2: Biome-Specific Distribution & Taxonomy
+
+The generation must strictly adhere to the biome environment and placement rules.
+
+* **[MODIFY] `src/terrain.rs`:** Update `DesertTerrain` to occasionally generate deep depressions that dip below the global water level to naturally form rare Oases.
+* **[PROCESS]**: develop one terrain at a time, testing between each one.
+* **[MODIFY] `src/lsystem.rs`:** Expand the L-system rules into a taxonomy:
+  * **Oak/Birch:** Standard branching, spawns primarily in **Hills**.
+  * **Pine/Conifer:** Tall, triangular branching, spawns primarily in **Mountains**.
+  * **Palm Trees:** Thin trunks, top-heavy leaves. Spawns in **Deserts**, but *only* if the terrain height is at or near the water level threshold (`y <= WATER_LEVEL + 3`), populating the rare Oases.
+  * **Scrub/Bush:** Low iteration, dense leaves. Spawns heavily in **Plains**.
+  * **Cacti:** L-system without leaves. Spawns in **Deserts**, extremely rarely (large Poisson radius `r`).
+* **[MODIFY] `src/entities.rs`:** The `EntityManager` queries the terrain height map to snap the `y` coordinate. It then queries the biome type at `(x, z)` to decide *which* L-system rule to evaluate and generate.
+
+### Phase 3: Batched Entity Rendering (Opaque & Transparent)
+
+Generating individual `wgpu::Buffer`s for every tree is inefficient. We will use Batched Meshes to preserve unique procedural shapes.
+
+* **Buffer Separation:** The entity mesh generation will split into two buffers per chunk: `opaque_buffer` (trunks, branches, cacti) and `transparent_buffer` (leaves).
+* **Boundary Overlap Solution:** An entity belongs exclusively to the spatial cell where its origin `(x, z)` resides. When a cell is loaded, all entity vertices whose origins are in that cell are concatenated into the batched buffers. If a tree's branches physically overhang into an unloaded neighboring chunk, they will disappear when the origin chunk unloads. Because chunks unload outside the player's fog distance, this disappearance will be completely hidden by the fog, requiring no expanded load radius!
+* **[MODIFY] `src/render_state.rs`:** Add an `EntityChunkBuffers` map. During the opaque render pass, iterate and draw the trunks. During the transparent render pass (where water is drawn), iterate and draw the leaves to ensure proper alpha blending.
+
+### Phase 4: Raycasting Interaction
+
+* **[MODIFY] `src/camera.rs` / `src/scene.rs`:** Implement an AABB (Axis-Aligned Bounding Box) intersection test for the camera's look vector. Each entity will store a simplified AABB for its trunk/mesh.
+* **[NEW] Destruction Logic:** When the player clicks, the raycast detects the entity. The entire entity is removed from the `EntityManager` and the batched mesh buffer is re-generated for that cell. *(Future iterations will handle the physics of the tree tipping over and falling).*
+
+## Verification Plan
+
+### Automated Tests
+
+* **Poisson Disk Tests:** Add unit tests in `src/poisson.rs` to assert that generated coordinates never violate the minimum distance `r` for given biomes.
+* **Deterministic Spawning:** Add tests asserting that initializing the `EntityManager` for cell `(10, -5)` twice with the same seed yields the exact same entity coordinates and tree types.
+* **Performance Benchmark:** Add a `cargo bench` load test measuring the time it takes to generate and batch entity meshes for a dense forest region of 10x10 chunks, ensuring generation times do not block the main thread.
+
+### Manual Verification
+
+1. **Placement Validation:** Use `/find_biome desert` to teleport to a desert. Visually confirm palm trees are exclusively near water (oases) and cacti are rare. Use `/find_biome mountains` to confirm pine-like structures.
+2. **Destruction:** Look at a tree trunk and left-click. Confirm the tree vanishes.
+3. **Rendering Integrity:** Look at overlapping leaves against the sky to ensure the transparent rendering pass handles the alpha cutouts correctly.

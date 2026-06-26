@@ -179,7 +179,7 @@ impl Chunks {
     }
 
     pub fn height_at(&self, position: &Vec3) -> f32 {
-        let point: [f64; 2] = [position.x as f64 / 384.0, position.z as f64 / 384.0];
+        let point: [f64; 2] = [position.x as f64, position.z as f64];
         self.terrain.get(point).0 as f32
     }
 
@@ -316,7 +316,7 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
                     let blockx = (x as u32) + (16 * key.x);
                     let blocky = (y as u32) + (16 * chunky);
                     let blockz = (z as u32) + (16 * key.y);
-                    let point: [f64; 2] = [blockx as f64 / 384.0, blockz as f64 / 384.0];
+                    let point: [f64; 2] = [blockx as f64, blockz as f64];
                     let (height_f64, biome) = terrain.get(point);
                     let height = height_f64 as f32;
                     

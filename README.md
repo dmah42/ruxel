@@ -7,10 +7,6 @@ it's written in rust.
 
 ## Future improvements
 
-1. [**Raymarching renderer**](docs/raymarching_design.md): Replace the
-   rasterizing renderer with a ray marching renderer.
-1. [**Trees & Flora (Decorators)**](docs/decorators_design.md): Add a decorator
-   pass during chunk generation to place structures like trees or tall grass.
 1. **Dynamic World Simulation**: Implement block-update mechanics where the
    world evolves over time (e.g., trees grow, ice melts, water flows). CLOUDS!
 1. **3D Noise / Caves**: Introduce 3D noise to carve out cave networks below the

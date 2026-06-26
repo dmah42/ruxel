@@ -3,6 +3,8 @@ use std::time::Duration;
 use crate::{
     camera::Camera,
     chunks::Chunks,
+    config::Config,
+    entities::EntityManager,
     light::{Light, RawLight},
 };
 use bytemuck::{Pod, Zeroable};
@@ -39,11 +41,15 @@ pub struct Scene {
     sun_offset: Vec3,
     moon_offset: Vec3,
     lights: Lights,
+    entity_manager: EntityManager,
+    load_radius: i32,
 }
 
 impl Scene {
-    pub fn new(seed: u32, config: crate::config::Config) -> Self {
-        let chunks = Chunks::new(config.active_world.clone(), seed, config.chunk_load_radius);
+    pub fn new(seed: u32, config: Config) -> Self {
+        let load_radius = config.chunk_load_radius;
+        let chunks = Chunks::new(config.active_world.clone(), seed, load_radius);
+        let entity_manager = EntityManager::new(seed);
 
         // TODO: position sun relative to player always.
         let lights = Lights {
@@ -51,26 +57,42 @@ impl Scene {
                 // sun
                 Light::new(
                     Vec3::new(0.0, 200.0, 50.0),
-                    wgpu::Color { r: 0.99, g: 0.85, b: 0.21, a: 1.0 },
+                    wgpu::Color {
+                        r: 0.99,
+                        g: 0.85,
+                        b: 0.21,
+                        a: 1.0,
+                    },
                 ),
                 // moon
                 Light::new(
                     Vec3::new(0.0, -80.0, 40.0),
-                    wgpu::Color { r: 0.76, g: 0.77, b: 0.80, a: 0.25 },
+                    wgpu::Color {
+                        r: 0.76,
+                        g: 0.77,
+                        b: 0.80,
+                        a: 0.25,
+                    },
                 ),
             ],
         };
 
         Self {
+            chunks,
             sun_offset: Vec3::new(64.0, 64.0, 0.0),
             moon_offset: Vec3::new(-64.0, -64.0, 32.0),
             lights,
-            chunks,
+            entity_manager,
+            load_radius,
         }
     }
 
     pub fn chunks(&self) -> &Chunks {
         &self.chunks
+    }
+
+    pub(crate) fn entity_manager(&self) -> &EntityManager {
+        &self.entity_manager
     }
 
     pub fn sun_offset(&self) -> Vec3 {
@@ -86,7 +108,8 @@ impl Scene {
     }
 
     pub fn set_time(&mut self, t: f32) {
-        let radius = (self.sun_offset.x * self.sun_offset.x + self.sun_offset.y * self.sun_offset.y).sqrt();
+        let radius =
+            (self.sun_offset.x * self.sun_offset.x + self.sun_offset.y * self.sun_offset.y).sqrt();
         self.sun_offset.x = radius * t.cos();
         self.sun_offset.y = radius * t.sin();
     }
@@ -94,6 +117,7 @@ impl Scene {
     pub fn update(&mut self, dt: Duration, camera: &Camera) {
         let player_position = camera.position();
         self.chunks.update(&player_position);
+        self.entity_manager.update(&player_position, self.load_radius, self.chunks.terrain());
 
         let orbit_radius = camera.fog_end * 1.1;
 
@@ -102,10 +126,10 @@ impl Scene {
         self.sun_offset = Quat::from_axis_angle(Vec3::Z, 0.02 * dt.as_secs_f32()) * self.sun_offset;
         self.moon_offset =
             Quat::from_axis_angle(Vec3::Z, 0.04 * dt.as_secs_f32()) * self.moon_offset;
-            
+
         let current_sun_offset = self.sun_offset.normalize_or_zero() * orbit_radius;
         let current_moon_offset = self.moon_offset.normalize_or_zero() * orbit_radius;
-            
+
         self.lights.lights[0].position = player_position + current_sun_offset;
         self.lights.lights[1].position = player_position + current_moon_offset;
     }

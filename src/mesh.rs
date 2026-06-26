@@ -58,7 +58,7 @@ impl ChunkMesh {
                     }
                 }
 
-                let point: [f64; 2] = [wx as f64 / 384.0, wz as f64 / 384.0];
+                let point: [f64; 2] = [wx as f64, wz as f64];
                 let height = terrain.get(point).0 as i32;
                 wy < height
             }
@@ -88,7 +88,7 @@ impl ChunkMesh {
                     }
                 }
 
-                let point: [f64; 2] = [wx as f64 / 384.0, wz as f64 / 384.0];
+                let point: [f64; 2] = [wx as f64, wz as f64];
                 let height = terrain.get(point).0 as i32;
                 wy < 32 && wy >= height
             }

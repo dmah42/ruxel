@@ -10,6 +10,8 @@ fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
     t * t * (3.0 - 2.0 * t)
 }
 
+pub const WATER_LEVEL: f64 = 32.0;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Biome {
     Ocean,
@@ -157,7 +159,13 @@ impl WorldTerrain {
         }
     }
 
-    pub fn get(&self, point: [f64; 2]) -> (f64, Biome) {
+    pub const WORLD_SCALE: f64 = 384.0;
+
+    pub fn get(&self, world_point: [f64; 2]) -> (f64, Biome) {
+        let point = [
+            world_point[0] / Self::WORLD_SCALE,
+            world_point[1] / Self::WORLD_SCALE,
+        ];
         let shore_t = self.get_shore_t(point);
 
         let (mut primary_biome, weights) = self.get_land_blend(point);
@@ -246,9 +254,11 @@ impl WorldTerrain {
             let px = start_point[0] + (x as f64 * step_size);
             let pz = start_point[1] + (z as f64 * step_size);
 
-            let point = [px, pz];
-            if self.is_pure_biome(point, target) {
-                return Some([px * 384.0, pz * 384.0]);
+            if px >= 0.0 && pz >= 0.0 {
+                let point = [px, pz];
+                if self.is_pure_biome(point, target) {
+                    return Some([px * 384.0, pz * 384.0]);
+                }
             }
 
             if x == z || (x < 0 && x == -z) || (x > 0 && x == 1 - z) {
@@ -329,7 +339,7 @@ impl OceanTerrain {
 }
 
 #[derive(Clone)]
-struct PlainsTerrain {
+pub(crate) struct PlainsTerrain {
     base_noise: Fbm<Perlin>,
     base_bound: f64,
     detail_noise: Fbm<Perlin>,
@@ -337,7 +347,7 @@ struct PlainsTerrain {
 }
 
 impl PlainsTerrain {
-    fn new(seed: u32) -> Self {
+    pub(crate) fn new(seed: u32) -> Self {
         let base_octaves = 4;
         let base_persistence = 0.5;
         let detail_octaves = 3;
@@ -357,7 +367,7 @@ impl PlainsTerrain {
         }
     }
 
-    fn get(&self, point: [f64; 2]) -> f64 {
+    pub(crate) fn get(&self, point: [f64; 2]) -> f64 {
         let base_val = self.base_noise.get(point);
         let detail_val = self.detail_noise.get(point);
 
@@ -370,7 +380,7 @@ impl PlainsTerrain {
 }
 
 #[derive(Clone)]
-struct HillsTerrain {
+pub(crate) struct HillsTerrain {
     base_noise: Fbm<Perlin>,
     base_bound: f64,
     mask_noise: Fbm<Perlin>,
@@ -378,7 +388,7 @@ struct HillsTerrain {
 }
 
 impl HillsTerrain {
-    fn new(seed: u32) -> Self {
+    pub(crate) fn new(seed: u32) -> Self {
         let base_octaves = 6;
         let base_persistence = 0.5;
         let mask_octaves = 4;
@@ -399,7 +409,7 @@ impl HillsTerrain {
         }
     }
 
-    fn get(&self, point: [f64; 2]) -> f64 {
+    pub(crate) fn get(&self, point: [f64; 2]) -> f64 {
         let base_raw = self.base_noise.get(point);
         let mask_raw = self.mask_noise.get(point);
 
@@ -414,7 +424,7 @@ impl HillsTerrain {
 }
 
 #[derive(Clone)]
-struct MountainTerrain {
+pub(crate) struct MountainTerrain {
     base_noise: Fbm<Perlin>,
     base_bound: f64,
     mask_noise: Fbm<Perlin>,
@@ -422,7 +432,7 @@ struct MountainTerrain {
 }
 
 impl MountainTerrain {
-    fn new(seed: u32) -> Self {
+    pub(crate) fn new(seed: u32) -> Self {
         let base_octaves = 14;
         let base_persistence = 0.5;
         let mask_octaves = 4;
@@ -443,7 +453,7 @@ impl MountainTerrain {
         }
     }
 
-    fn get(&self, point: [f64; 2]) -> f64 {
+    pub(crate) fn get(&self, point: [f64; 2]) -> f64 {
         let base_raw = self.base_noise.get(point);
         let mask_raw = self.mask_noise.get(point);
 
@@ -471,14 +481,14 @@ fn hash2(x: u32, y: u32, seed: u32) -> [f64; 2] {
 }
 
 #[derive(Clone)]
-struct DesertTerrain {
+pub(crate) struct DesertTerrain {
     base_noise: Fbm<Perlin>,
     base_bound: f64,
     seed: u32,
 }
 
 impl DesertTerrain {
-    fn new(seed: u32) -> Self {
+    pub(crate) fn new(seed: u32) -> Self {
         Self {
             base_noise: Fbm::<Perlin>::new(seed.wrapping_add(2))
                 .set_frequency(0.5)
@@ -488,7 +498,7 @@ impl DesertTerrain {
         }
     }
 
-    fn get(&self, point: [f64; 2]) -> f64 {
+    pub(crate) fn get(&self, point: [f64; 2]) -> f64 {
         // Generate base desert floor
         let base_raw = self.base_noise.get(point);
         let base_norm = ((base_raw + self.base_bound) / (2.0 * self.base_bound)).clamp(0.0, 1.0);
@@ -560,7 +570,17 @@ impl DesertTerrain {
         // Sand ripple
         let ripple = (base_raw * 0.1).abs();
 
-        26.0 + base_norm * 8.0 + max_dune_height * 22.0 + ripple
+        let height = (WATER_LEVEL - 1.0) + base_norm * 8.0 + max_dune_height * 22.0 + ripple;
+
+        // Carve rare oasis depressions
+        //if oasis_norm > 0.90 {
+        //    let t = (oasis_norm - 0.90) / 0.02;
+        //    // Smooth drop up to 25 blocks deep, pulling the terrain underwater
+        //    let drop = t * t * (3.0 - 2.0 * t) * 25.0;
+        //    height -= drop;
+        //}
+
+        height
     }
 }
 
@@ -617,11 +637,14 @@ mod tests {
 
         for x in 0..grid_size {
             for z in 0..grid_size {
-                let point = [x as f64 / 384.0, z as f64 / 384.0];
+                let noise_point = [
+                    x as f64 / WorldTerrain::WORLD_SCALE,
+                    z as f64 / WorldTerrain::WORLD_SCALE,
+                ];
                 total_blocks += 1;
 
-                let shore_t = terrain.get_shore_t(point);
-                let (primary_land, land_weights) = terrain.get_land_blend(point);
+                let shore_t = terrain.get_shore_t(noise_point);
+                let (primary_land, land_weights) = terrain.get_land_blend(noise_point);
 
                 let final_biome = if shore_t < 0.5 {
                     Biome::Ocean
@@ -669,7 +692,7 @@ mod tests {
             }
         }
 
-        img.save("biome_map.bmp")
+        img.save("test_outputs/biome_map.bmp")
             .expect("Failed to save biome_map.bmp");
 
         assert!(total_blocks > 0, "No blocks generated in the test area.");
@@ -700,10 +723,13 @@ mod tests {
 
         for x in 0..grid_size {
             for z in 0..grid_size {
-                let point = [x as f64 / 384.0, z as f64 / 384.0];
+                let noise_point = [
+                    x as f64 / WorldTerrain::WORLD_SCALE,
+                    z as f64 / WorldTerrain::WORLD_SCALE,
+                ];
                 total_blocks += 1;
 
-                let shore_t = terrain.get_shore_t(point);
+                let shore_t = terrain.get_shore_t(noise_point);
                 if shore_t == 0.0 {
                     ocean_blocks += 1;
                 }
@@ -716,7 +742,7 @@ mod tests {
             }
         }
 
-        img.save("continent_map.bmp")
+        img.save("test_outputs/continent_map.bmp")
             .expect("Failed to save continent_map.bmp");
 
         let ocean_pct = ocean_blocks as f64 / total_blocks as f64;
@@ -737,12 +763,16 @@ mod tests {
         for x in 0..grid_size {
             for z in 0..grid_size {
                 let h = plains.get([x as f64 / 100.0, z as f64 / 100.0]);
-                // Map height roughly 0..100 to 0..255 grayscale
-                let c = (h.clamp(0.0, 100.0) * 2.55) as u8;
-                img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
+                if h <= WATER_LEVEL {
+                    let b = 255 - ((WATER_LEVEL - h).clamp(0.0, 30.0) as u8 * 4);
+                    img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
+                } else {
+                    let c = (h.clamp(0.0, 100.0) * 2.55) as u8;
+                    img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
+                }
             }
         }
-        img.save("biome_height_plains.bmp")
+        img.save("test_outputs/biome_height_plains.bmp")
             .expect("Failed to save plains heightmap");
     }
 
@@ -754,11 +784,16 @@ mod tests {
         for x in 0..grid_size {
             for z in 0..grid_size {
                 let h = mountains.get([x as f64 / 100.0, z as f64 / 100.0]);
-                let c = (h.clamp(0.0, 150.0) * 1.7) as u8;
-                img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
+                if h <= WATER_LEVEL {
+                    let b = 255 - ((WATER_LEVEL - h).clamp(0.0, 30.0) as u8 * 4);
+                    img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
+                } else {
+                    let c = (h.clamp(0.0, 150.0) * 1.7) as u8;
+                    img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
+                }
             }
         }
-        img.save("biome_height_mountains.bmp")
+        img.save("test_outputs/biome_height_mountains.bmp")
             .expect("Failed to save mountain heightmap");
     }
 
@@ -770,11 +805,16 @@ mod tests {
         for x in 0..grid_size {
             for z in 0..grid_size {
                 let h = desert.get([x as f64 / 100.0, z as f64 / 100.0]);
-                let c = (h.clamp(0.0, 100.0) * 2.55) as u8;
-                img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
+                if h <= WATER_LEVEL {
+                    let b = 255 - ((WATER_LEVEL - h).clamp(0.0, 30.0) as u8 * 4);
+                    img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
+                } else {
+                    let c = (h.clamp(0.0, 100.0) * 2.55) as u8;
+                    img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
+                }
             }
         }
-        img.save("biome_height_desert.bmp")
+        img.save("test_outputs/biome_height_desert.bmp")
             .expect("Failed to save desert heightmap");
     }
 
@@ -786,11 +826,16 @@ mod tests {
         for x in 0..grid_size {
             for z in 0..grid_size {
                 let h = hills.get([x as f64 / 100.0, z as f64 / 100.0]);
-                let c = (h.clamp(0.0, 120.0) * 2.12) as u8;
-                img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
+                if h <= WATER_LEVEL {
+                    let b = 255 - ((WATER_LEVEL - h).clamp(0.0, 30.0) as u8 * 4);
+                    img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
+                } else {
+                    let c = (h.clamp(0.0, 120.0) * 2.12) as u8;
+                    img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));
+                }
             }
         }
-        img.save("biome_height_hills.bmp")
+        img.save("test_outputs/biome_height_hills.bmp")
             .expect("Failed to save hills heightmap");
     }
 }

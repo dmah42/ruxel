@@ -55,6 +55,10 @@ pub struct RenderState<'window> {
     wireframe_index_buffer: wgpu::Buffer,
     wireframe_uniform_buffer: wgpu::Buffer,
 
+    entity_vertex_buffer: Option<wgpu::Buffer>,
+    entity_index_buffer: Option<(wgpu::Buffer, u32)>,
+    entity_version: u32,
+
     chunk_buffers: std::collections::HashMap<glam::UVec2, Vec<Option<ChunkBuffers>>>,
     chunk_versions: std::collections::HashMap<glam::UVec2, Vec<u32>>,
 
@@ -462,6 +466,9 @@ impl RenderState<'static> {
             num_indices,
             wireframe_index_buffer,
             wireframe_uniform_buffer,
+            entity_vertex_buffer: None,
+            entity_index_buffer: None,
+            entity_version: u32::MAX, // Force update on first frame
         }
     }
 
@@ -503,6 +510,44 @@ impl RenderState<'static> {
             0,
             bytemuck::cast_slice(&[self.sky.to_raw(self.config.format.is_srgb())]),
         );
+
+        // In Phase 1 we just concatenate all loaded cells into one big buffer for now
+        // This will be replaced by batched chunks in Phase 3
+        let current_version = scene.entity_manager().version;
+        if current_version != self.entity_version {
+            self.entity_version = current_version;
+
+            if scene.entity_manager().loaded_cells().is_empty() {
+                self.entity_vertex_buffer = None;
+                self.entity_index_buffer = None;
+            } else {
+                let mut all_vertices: Vec<Vertex> = Vec::new();
+                let mut all_indices = Vec::new();
+                for mesh in scene.entity_manager().loaded_cells().values() {
+                    let base_idx = all_vertices.len() as u32;
+                    all_vertices.extend(&mesh.vertices);
+                    all_indices.extend(mesh.indices.iter().map(|i| i + base_idx));
+                }
+
+                use wgpu::util::DeviceExt;
+                self.entity_vertex_buffer = Some(self.device.create_buffer_init(
+                    &wgpu::util::BufferInitDescriptor {
+                        label: Some("entity vertex buffer"),
+                        contents: bytemuck::cast_slice(&all_vertices),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    },
+                ));
+                self.entity_index_buffer = Some((
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("entity index buffer"),
+                            contents: bytemuck::cast_slice(&all_indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        }),
+                    all_indices.len() as u32,
+                ));
+            }
+        }
     }
 
     fn update_chunk_buffers(&mut self, scene: &Scene) {
@@ -680,6 +725,15 @@ impl RenderState<'static> {
                                 .set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
                             render_pass.draw_indexed(0..*num_indices, 0, 0..1);
                         }
+                    }
+                }
+
+                if let Some((index_buf, num_indices)) = &self.entity_index_buffer {
+                    if let Some(vertex_buf) = &self.entity_vertex_buffer {
+                        render_pass.set_vertex_buffer(0, vertex_buf.slice(..));
+                        render_pass
+                            .set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.draw_indexed(0..*num_indices, 0, 0..1);
                     }
                 }
             }

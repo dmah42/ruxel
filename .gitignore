@@ -7,5 +7,5 @@
 
 # created by the game
 config.toml
+test_outputs/
 worlds/
-*.bmp
