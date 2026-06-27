@@ -1,0 +1,48 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on tags starting with v, e.g., v1.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build ruxel for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: ruxel.exe
+            asset_name: ruxel-windows.exe
+          - os: macos-latest
+            artifact_name: ruxel
+            asset_name: ruxel-macos
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: make build_release
+
+      - name: Run tests
+        run: make test_release
+
+      - name: Upload Binary to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/release/${{ matrix.artifact_name }}
+          # Rename the files so they clearly state the OS in the release tab
+          name: Release ${{ github.ref_name }}
+          draft: true # Saves it as a draft so you can review before publishing
