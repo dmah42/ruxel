@@ -3,11 +3,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use crate::lsystem::{self, TreeType};
+use crate::lsystem;
 use crate::poisson::AdaptivePoisson;
-use crate::terrain::{Biome, WorldTerrain, WATER_LEVEL};
-
-const BUSH_MAX_HEIGHT: f64 = 50.0;
+use crate::terrain::{WorldTerrain, WATER_LEVEL};
+use crate::trees::{self, TreeType};
 
 pub(crate) struct EntityManager {
     loaded_cells: HashMap<UVec2, lsystem::EntityMesh>,
@@ -29,48 +28,34 @@ fn generate_entities_for_chunk(
     let points = poisson.generate_for_chunk(chunk_x, chunk_z, &|p| terrain.get(p));
 
     for pt in points {
-        let (height, biome, grove) = terrain.get([pt.x as f64, pt.y as f64]);
+        let tdata = terrain.get([pt.x as f64, pt.y as f64]);
 
-        if height > WATER_LEVEL {
-            let tree_type = match biome {
-                Biome::Desert => TreeType::Palm,
-                Biome::Plains => TreeType::Bush,
-                Biome::Hills => {
-                    if grove > 0.5 {
-                        TreeType::Birch
-                    } else {
-                        TreeType::Oak
-                    }
-                }
-                Biome::Mountains => {
-                    let jitter = ((pt.x * 12.9898 + pt.y * 78.233).sin() * 10.0) as f64;
-                    if height > 100.0 + jitter {
-                        TreeType::Pine
-                    } else {
-                        TreeType::Birch
-                    }
-                }
-                _ => TreeType::Default,
+        if tdata.height > WATER_LEVEL {
+            let temp = tdata.temperature;
+            let moist = tdata.moisture;
+            let height = tdata.height;
+
+            // Altitude jitter adds organic variation to the treeline
+            let altitude_jitter = ((pt.x * 12.9898 + pt.y * 78.233).sin() * 10.0) as f64;
+
+            let suitable_trees = trees::get_suitable_trees(temp, moist, height, altitude_jitter);
+
+            let tree_type = if suitable_trees.is_empty() {
+                None
+            } else if suitable_trees.len() == 1 {
+                Some(suitable_trees[0])
+            } else {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                (pt.x as i32).hash(&mut hasher);
+                (pt.y as i32).hash(&mut hasher);
+                let coin = (hasher.finish() % suitable_trees.len() as u64) as usize;
+                Some(suitable_trees[coin])
             };
 
-            let position = Vec3::new(pt.x, height as f32, pt.y);
-            entities.push((position, tree_type));
-        }
-    }
-
-    // Pass 2: Bushes in Hills and Mountains
-    let bush_poisson = AdaptivePoisson::new(seed.wrapping_add(1337));
-    let bush_points = bush_poisson.generate_for_chunk(chunk_x, chunk_z, &|p| terrain.get(p));
-
-    for pt in bush_points {
-        let (height, biome, _) = terrain.get([pt.x as f64, pt.y as f64]);
-
-        if height > WATER_LEVEL && height < BUSH_MAX_HEIGHT {
-            let should_spawn = matches!(biome, Biome::Hills | Biome::Mountains);
-
-            if should_spawn {
-                let position = Vec3::new(pt.x, height as f32, pt.y);
-                entities.push((position, TreeType::Bush));
+            if let Some(tree_type) = tree_type {
+                let position = Vec3::new(pt.x, tdata.height as f32, pt.y);
+                entities.push((position, tree_type));
             }
         }
     }
@@ -185,13 +170,30 @@ impl EntityManager {
             self.version = self.version.wrapping_add(1);
         }
     }
+
+    /// Block and wait for all in-flight chunk generation to complete.
+    /// Used for deterministic testing.
+    #[cfg(test)]
+    pub(crate) fn wait_for_all_in_flight(&mut self) {
+        while !self.in_flight.is_empty() {
+            if let Ok((key, mesh)) = self.result_rx.recv() {
+                self.in_flight.remove(&key);
+                let is_empty = mesh.vertices.is_empty();
+                self.loaded_cells.insert(key, mesh);
+
+                if !is_empty {
+                    self.version = self.version.wrapping_add(1);
+                }
+            } else {
+                break; // Channel disconnected
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terrain::WorldTerrain;
-    use std::time::Duration;
 
     #[test]
     fn test_entity_manager_caching_empty_chunk() {
@@ -199,17 +201,12 @@ mod tests {
         let mut em = EntityManager::new(12345, terrain.clone());
 
         let player_pos = Vec3::new(0.0, 0.0, 0.0);
-
-        // Initial update queues the chunk
         em.update(&player_pos, 0);
 
-        // Wait for background thread to generate the mesh
-        thread::sleep(Duration::from_millis(100));
-
-        // Second update processes the result and caches it
-        em.update(&player_pos, 0);
+        em.wait_for_all_in_flight();
 
         let key = UVec2::new(0, 0);
+
         assert!(
             em.loaded_cells.contains_key(&key),
             "Chunk should be cached even if empty"
@@ -224,86 +221,96 @@ mod tests {
         let player_pos = Vec3::new(0.0, 0.0, 0.0);
         em.update(&player_pos, 0);
 
-        thread::sleep(Duration::from_millis(100));
-        em.update(&player_pos, 0);
+        em.wait_for_all_in_flight();
 
         let key = UVec2::new(0, 0);
-        let mesh = em.loaded_cells.get(&key).unwrap();
-
-        if mesh.vertices.is_empty() {
-            assert_eq!(em.version, 0, "Version should not bump for empty chunks");
+        if let Some(mesh) = em.loaded_cells.get(&key) {
+            if mesh.vertices.is_empty() {
+                assert_eq!(em.version, 0, "Version should not bump for empty chunks");
+            } else {
+                assert_eq!(em.version, 1, "Version should bump for populated chunks");
+            }
         } else {
-            assert_eq!(em.version, 1, "Version should bump for populated chunks");
+            panic!("Chunk 0,0 was not loaded by EntityManager");
         }
     }
 
     #[test]
     fn test_entity_generation_bitmap() {
+        use rayon::prelude::*;
         let terrain = WorldTerrain::new(12345);
-        let width = 10000;
-        let height = 10000;
+        let width = 2 * 4096;
+        let height = 2 * 4096;
         let mut img = image::ImageBuffer::new(width, height);
 
-        // Fill background with heightmap
-        for x in 0..width {
-            for z in 0..height {
-                let (h, _biome, grove_noise) = terrain.get([x as f64, z as f64]);
-                if h <= crate::terrain::WATER_LEVEL {
-                    let depth = (crate::terrain::WATER_LEVEL - h).clamp(0.0, 30.0);
-                    let b = 255 - (depth as u8 * 4);
-                    img.put_pixel(x, z, image::Rgb([0, 0, b]));
-                } else {
-                    let intensity =
-                        ((h - crate::terrain::WATER_LEVEL) / 80.0 * 255.0).clamp(0.0, 255.0) as u8;
-                    if grove_noise > 0.5 {
-                        img.put_pixel(x, z, image::Rgb([intensity / 2, intensity, intensity / 2]));
+        // Compute pixels in parallel
+        let mut pixel_data = vec![image::Rgb([0, 0, 0]); (width * height) as usize];
+        pixel_data
+            .par_chunks_mut(width as usize)
+            .enumerate()
+            .for_each(|(z, row)| {
+                for x in 0..(width as usize) {
+                    let tdata = terrain.get([x as f64, z as f64]);
+                    if tdata.height <= crate::terrain::WATER_LEVEL {
+                        let depth = (crate::terrain::WATER_LEVEL - tdata.height).clamp(0.0, 30.0);
+                        let b = 255 - (depth as u8 * 4);
+                        row[x] = image::Rgb([0, 0, b]);
                     } else {
-                        img.put_pixel(
-                            x,
-                            z,
-                            image::Rgb([
-                                intensity / 2 + 30,
-                                intensity / 2 + 30,
-                                intensity / 2 + 30,
-                            ]),
-                        );
+                        let intensity = ((tdata.height - crate::terrain::WATER_LEVEL) / 80.0
+                            * 255.0)
+                            .clamp(0.0, 255.0) as u8;
+                        row[x] = image::Rgb([
+                            intensity / 2 + 30,
+                            intensity / 2 + 30,
+                            intensity / 2 + 30,
+                        ]);
                     }
                 }
-            }
+            });
+
+        // Copy parallel computed pixels to image
+        for (i, p) in pixel_data.into_iter().enumerate() {
+            let x = (i as u32) % width;
+            let z = (i as u32) / width;
+            img.put_pixel(x, z, p);
         }
 
         let chunk_count_w = width / 16;
         let chunk_count_h = height / 16;
-        for cx in 0..chunk_count_w {
-            for cz in 0..chunk_count_h {
-                let entities = generate_entities_for_chunk(12345, cx, cz, &terrain);
 
-                for (p, tree_type) in entities {
-                    let px = p.x.round() as u32;
-                    let pz = p.z.round() as u32;
+        let chunk_coords: Vec<(u32, u32)> = (0..chunk_count_w)
+            .flat_map(|cx| (0..chunk_count_h).map(move |cz| (cx, cz)))
+            .collect();
 
-                    if px < width && pz < height {
-                        let color: [u8; 3] = match tree_type {
-                            TreeType::Bush => [85, 107, 47],    // Dark Olive
-                            TreeType::Palm => [255, 255, 0],    // Yellow
-                            TreeType::Pine => [200, 200, 200],  // Grey/White
-                            TreeType::Birch => [255, 255, 255], // White
-                            TreeType::Oak => [100, 255, 100],   // Light green
-                            TreeType::Default => [255, 0, 0],   // Red
-                        };
+        let all_entities: Vec<Vec<(glam::Vec3, TreeType)>> = chunk_coords
+            .par_iter()
+            .map(|&(cx, cz)| generate_entities_for_chunk(12345, cx, cz, &terrain))
+            .collect();
 
-                        for dx in -1..=1 {
-                            for dz in -1..=1 {
-                                let dx_px = (px as i32 + dx).clamp(0, width as i32 - 1) as u32;
-                                let dz_pz = (pz as i32 + dz).clamp(0, height as i32 - 1) as u32;
-                                img.put_pixel(dx_px, dz_pz, image::Rgb(color));
-                            }
+        for entities in all_entities {
+            for (p, tree_type) in entities {
+                let px = p.x.round() as u32;
+                let pz = p.z.round() as u32;
+
+                if px < width && pz < height {
+                    let color: [u8; 3] = match tree_type {
+                        TreeType::Bush => [255, 140, 0], // Dark Orange (contrast with green grove)
+                        TreeType::Palm => [255, 255, 0], // Yellow
+                        TreeType::Pine => [200, 200, 200], // Grey/White
+                        TreeType::Birch => [255, 255, 255], // White
+                        TreeType::Oak => [100, 255, 100], // Light green
+                    };
+
+                    for dx in -1..=1 {
+                        for dz in -1..=1 {
+                            let dx_px = (px as i32 + dx).clamp(0, width as i32 - 1) as u32;
+                            let dz_pz = (pz as i32 + dz).clamp(0, height as i32 - 1) as u32;
+                            img.put_pixel(dx_px, dz_pz, image::Rgb(color));
                         }
                     }
                 }
             }
         }
-
         img.save("test_outputs/entity_generation_map.bmp")
             .expect("Failed to save entity generation map");
     }

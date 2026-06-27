@@ -3,15 +3,7 @@ use glam::{Quat, Vec3};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TreeType {
-    Default,
-    Palm,
-    Bush,
-    Birch,
-    Oak,
-    Pine,
-}
+use crate::trees::TreeType;
 
 pub struct EntityMesh {
     pub vertices: Vec<Vertex>,
@@ -79,8 +71,7 @@ fn jitter_color(
 
 pub fn generate_l_system_tree(tree_type: TreeType, origin: Vec3) -> EntityMesh {
     let (axiom, iterations, angle, base_thickness, base_length) = match tree_type {
-        TreeType::Default => ("X", 4, std::f32::consts::PI / 8.0, 0.3, 1.0),
-        TreeType::Palm => ("P", 2, std::f32::consts::PI / 4.0, 0.15, 1.0),
+        TreeType::Palm => ("P", 2, std::f32::consts::PI / 4.0, 0.2, 1.5),
         TreeType::Bush => (
             "[+X][-X][^X][&X]",
             3,
@@ -88,9 +79,9 @@ pub fn generate_l_system_tree(tree_type: TreeType, origin: Vec3) -> EntityMesh {
             0.05,
             0.15,
         ),
-        TreeType::Birch => ("X", 4, std::f32::consts::PI / 8.0, 0.12, 0.8),
-        TreeType::Oak => ("O", 5, std::f32::consts::PI / 4.0, 0.8, 0.2),
-        TreeType::Pine => ("A", 5, std::f32::consts::PI / 6.0, 0.3, 0.8),
+        TreeType::Birch => ("X", 4, std::f32::consts::PI / 8.0, 0.15, 0.6),
+        TreeType::Oak => ("O", 5, std::f32::consts::PI / 4.0, 0.8, 0.8),
+        TreeType::Pine => ("A", 5, std::f32::consts::PI / 6.0, 0.5, 1.0),
     };
 
     let string = generate_l_system_string(axiom, iterations);
@@ -120,7 +111,6 @@ pub fn generate_l_system_tree(tree_type: TreeType, origin: Vec3) -> EntityMesh {
 
                 // Color: brown for trunk/branches
                 let base_color = match tree_type {
-                    TreeType::Default => [101, 67, 33, 255],
                     TreeType::Palm => [210, 180, 140, 255], // Pale tan
                     TreeType::Bush => [85, 107, 47, 255],   // Dark olive green
                     TreeType::Birch => [200, 200, 200, 255], // White/Grey

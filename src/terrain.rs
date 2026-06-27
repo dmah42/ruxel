@@ -12,6 +12,19 @@ fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
 
 pub const WATER_LEVEL: f64 = 32.0;
 
+// Specific plant altitudes
+pub const BUSH_MAX_HEIGHT: f64 = 50.0;
+pub const PINE_ALTITUDE: f64 = 130.0;
+pub const TREELINE_ALTITUDE: f64 = 200.0;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TerrainData {
+    pub height: f64,
+    pub biome: Biome,
+    pub moisture: f64,
+    pub temperature: f64,
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Biome {
     Ocean,
@@ -85,11 +98,13 @@ impl WorldTerrain {
 
     fn get_land_blend(&self, point: [f64; 2]) -> (Biome, BiomeWeights) {
         let temp_raw = self.temperature_noise.get(point);
-
         let moist_raw = self.moisture_noise.get(point);
 
-        let temp_norm = ((temp_raw + 1.0) / 2.0).clamp(0.0, 1.0);
-        let moist_norm = ((moist_raw + 1.0) / 2.0).clamp(0.0, 1.0);
+        // The maximum value of 2D Perlin noise is sqrt(2)/2.
+        // Therefore, the maximum of this FBM is fbm_bound * sqrt(2)/2.
+        let true_bound = fbm_bound(4, 0.5) * std::f64::consts::SQRT_2 / 2.0;
+        let temp_norm = (temp_raw + true_bound) / (2.0 * true_bound);
+        let moist_norm = (moist_raw + true_bound) / (2.0 * true_bound);
 
         // Calculate distance to each biome center in the parameter space
         // Mountains: Cold (0.0), Any Moisture
@@ -161,7 +176,7 @@ impl WorldTerrain {
 
     pub const WORLD_SCALE: f64 = 384.0;
 
-    pub fn get(&self, world_point: [f64; 2]) -> (f64, Biome, f64) {
+    pub fn get(&self, world_point: [f64; 2]) -> TerrainData {
         let point = [
             world_point[0] / Self::WORLD_SCALE,
             world_point[1] / Self::WORLD_SCALE,
@@ -174,17 +189,12 @@ impl WorldTerrain {
         }
 
         let mut land_height = 0.0;
-        let mut grove_noise = 0.0;
 
         if weights.plains > 0.0 {
             land_height += weights.plains * self.plains.get(point);
         }
         if weights.hills > 0.0 {
-            let (h, g) = self.hills.get(point);
-            land_height += weights.hills * h;
-            if primary_biome == Biome::Hills {
-                grove_noise = g;
-            }
+            land_height += weights.hills * self.hills.get(point);
         }
         if weights.desert > 0.0 {
             land_height += weights.desert * self.desert.get(point);
@@ -213,7 +223,13 @@ impl WorldTerrain {
             }
         };
 
-        (final_height, primary_biome, grove_noise)
+        let true_bound = fbm_bound(4, 0.5) * std::f64::consts::SQRT_2 / 2.0;
+        TerrainData {
+            height: final_height,
+            biome: primary_biome,
+            moisture: (self.moisture_noise.get(point) + true_bound) / (2.0 * true_bound),
+            temperature: (self.temperature_noise.get(point) + true_bound) / (2.0 * true_bound),
+        }
     }
 
     pub fn is_pure_biome(&self, point: [f64; 2], target: Biome) -> bool {
@@ -391,7 +407,6 @@ pub(crate) struct HillsTerrain {
     base_bound: f64,
     mask_noise: Fbm<Perlin>,
     mask_bound: f64,
-    grove_noise: Fbm<Perlin>,
 }
 
 impl HillsTerrain {
@@ -413,14 +428,10 @@ impl HillsTerrain {
                 .set_persistence(mask_persistence)
                 .set_octaves(mask_octaves),
             mask_bound: fbm_bound(mask_octaves, mask_persistence),
-            grove_noise: Fbm::<Perlin>::new(seed.wrapping_add(25))
-                .set_frequency(0.02)
-                .set_octaves(2)
-                .set_persistence(0.5),
         }
     }
 
-    pub(crate) fn get(&self, point: [f64; 2]) -> (f64, f64) {
+    pub(crate) fn get(&self, point: [f64; 2]) -> f64 {
         let base_raw = self.base_noise.get(point);
         let mask_raw = self.mask_noise.get(point);
 
@@ -430,12 +441,7 @@ impl HillsTerrain {
         let exponent = 1.0 + (mask_val * 3.5);
         let final_val = base_val.powf(exponent);
 
-        let height = 24.0 + final_val * 120.0;
-
-        let grove_raw = self.grove_noise.get(point);
-        let grove_val = (grove_raw + 1.0) / 2.0;
-
-        (height, grove_val)
+        24.0 + final_val * 150.0
     }
 }
 
@@ -476,10 +482,10 @@ impl MountainTerrain {
         let base_val = (base_raw + self.base_bound) / (2.0 * self.base_bound);
         let mask_val = (mask_raw + self.mask_bound) / (2.0 * self.mask_bound);
 
-        let exponent = 1.0 + (mask_val * 4.5);
+        let exponent = 1.0 + (mask_val * 3.0);
         let final_val = base_val.powf(exponent);
 
-        24.0 + final_val * 200.0
+        24.0 + final_val * 230.0
     }
 }
 
@@ -773,6 +779,52 @@ mod tests {
     }
 
     #[test]
+    fn test_temperature_map() {
+        let terrain = WorldTerrain::new(12345);
+        let grid_size = 2 * TEST_GRID_SIZE;
+        let mut img = image::ImageBuffer::new(grid_size as u32, grid_size as u32);
+
+        for x in 0..grid_size {
+            for z in 0..grid_size {
+                let world_point = [x as f64, z as f64];
+                let tdata = terrain.get(world_point);
+                let t = tdata.temperature; // 0.0 to 1.0
+
+                let r = (t * 255.0) as u8;
+                let b = ((1.0 - t) * 255.0) as u8;
+                let g = 0;
+
+                img.put_pixel(x as u32, z as u32, image::Rgb([r, g, b]));
+            }
+        }
+        img.save("test_outputs/temperature_map.bmp")
+            .expect("Failed to save temperature_map.bmp");
+    }
+
+    #[test]
+    fn test_moisture_map() {
+        let terrain = WorldTerrain::new(12345);
+        let grid_size = 2 * TEST_GRID_SIZE;
+        let mut img = image::ImageBuffer::new(grid_size as u32, grid_size as u32);
+
+        for x in 0..grid_size {
+            for z in 0..grid_size {
+                let world_point = [x as f64, z as f64];
+                let tdata = terrain.get(world_point);
+                let m = tdata.moisture; // 0.0 to 1.0
+
+                let r = (139.0 * (1.0 - m) + 34.0 * m) as u8;
+                let g = (69.0 * (1.0 - m) + 139.0 * m) as u8;
+                let b = (19.0 * (1.0 - m) + 34.0 * m) as u8;
+
+                img.put_pixel(x as u32, z as u32, image::Rgb([r, g, b]));
+            }
+        }
+        img.save("test_outputs/moisture_map.bmp")
+            .expect("Failed to save moisture_map.bmp");
+    }
+
+    #[test]
     fn test_biome_heightmap_plains() {
         let plains = PlainsTerrain::new(123);
         let mut img = image::ImageBuffer::new(TEST_GRID_SIZE as u32, TEST_GRID_SIZE as u32);
@@ -847,16 +899,13 @@ mod tests {
         let mut img = image::ImageBuffer::new(TEST_GRID_SIZE as u32, TEST_GRID_SIZE as u32);
         for x in 0..TEST_GRID_SIZE {
             for z in 0..TEST_GRID_SIZE {
-                let (h, grove) = hills.get([
+                let h = hills.get([
                     (x as f64) / WorldTerrain::WORLD_SCALE,
                     (z as f64) / WorldTerrain::WORLD_SCALE,
                 ]);
                 if h <= WATER_LEVEL {
                     let b = 255 - ((WATER_LEVEL - h) as u8);
                     img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
-                } else if grove > 0.5 {
-                    let g = h as u8;
-                    img.put_pixel(x as u32, z as u32, image::Rgb([50, g, 80]));
                 } else {
                     let c = h as u8;
                     img.put_pixel(x as u32, z as u32, image::Rgb([c, c, c]));

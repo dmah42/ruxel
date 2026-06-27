@@ -5,6 +5,8 @@ it's written in rust.
 
 ## Bugs
 
+- oaks are a little on the small side
+
 ## Future improvements
 
 1. **Dynamic World Simulation**: Implement block-update mechanics where the
@@ -28,5 +30,6 @@ it's written in rust.
      - Display settings: window resolution, fullscreen mode, VSync.
      - Gameplay settings: mouse sensitivity, keybindings.
      - Graphics settings: shadow quality, anti-aliasing.
+1. **Climate**: Have the temperature/moisture maps get feedback from the generated terrain (e.g. rain shadows, altitude cooling).
 
 ## Tech Debt

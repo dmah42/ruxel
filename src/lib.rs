@@ -14,6 +14,7 @@ mod scene;
 mod sky;
 mod terrain;
 mod texture;
+mod trees;
 mod ui;
 mod vertex;
 

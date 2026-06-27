@@ -1,4 +1,5 @@
-use crate::terrain::{Biome, WATER_LEVEL};
+use crate::terrain::{TerrainData, WATER_LEVEL};
+use crate::trees;
 use glam::Vec2;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -12,59 +13,45 @@ impl AdaptivePoisson {
         Self { seed }
     }
 
-    fn get_radius<F>(height: f64, biome: &Biome, point: [f64; 2], terrain_func: &F) -> f32
+    fn get_radius<F>(point: [f64; 2], terrain_func: &F) -> f32
     where
-        F: Fn([f64; 2]) -> (f64, Biome, f64),
+        F: Fn([f64; 2]) -> TerrainData,
     {
-        if height <= WATER_LEVEL && *biome != Biome::Desert {
+        let tdata = terrain_func(point);
+        if tdata.height <= WATER_LEVEL {
             return f32::INFINITY;
         }
 
-        match biome {
-            Biome::Plains => 5.0, // Dense scrub
-            Biome::Hills => {
-                let (_, _, grove_noise) = terrain_func(point);
-                if grove_noise > 0.5 {
-                    10.0 // Dense birch stands
-                } else {
-                    40.0 // Very sparse, large oaks
-                }
-            }
-            Biome::Mountains => {
-                if height > 120.0 {
-                    f32::INFINITY // Above the tree line
-                } else {
-                    12.0 // Standard pines
-                }
-            }
-            Biome::Desert => {
-                if height > WATER_LEVEL {
-                    let dist = 15.0;
-                    let diag = dist * std::f64::consts::FRAC_1_SQRT_2; // 45 degrees
-                    let points_to_check = [
-                        [point[0] + dist, point[1]],
-                        [point[0] - dist, point[1]],
-                        [point[0], point[1] + dist],
-                        [point[0], point[1] - dist],
-                        [point[0] + diag, point[1] + diag],
-                        [point[0] - diag, point[1] + diag],
-                        [point[0] + diag, point[1] - diag],
-                        [point[0] - diag, point[1] - diag],
-                    ];
+        let temp = tdata.temperature;
+        let moist = tdata.moisture;
+        let height = tdata.height;
 
-                    let water_nearby = points_to_check.iter().any(|&p| {
-                        let (h, _, _) = terrain_func(p);
-                        h <= WATER_LEVEL
-                    });
-
-                    if water_nearby {
-                        return 15.0; // Oasis palms!
-                    }
-                }
-                f32::INFINITY // No plants on dry land or deep water
-            }
-            Biome::Ocean => f32::INFINITY, // No flora in ocean
+        if height > crate::terrain::TREELINE_ALTITUDE {
+            return f32::INFINITY; // Above the treeline, nothing grows
         }
+
+        // Helper to check for nearby water
+        let check_water_nearby = || {
+            let dist = 15.0;
+            let diag = dist * std::f64::consts::FRAC_1_SQRT_2;
+            let points_to_check = [
+                [point[0] + dist, point[1]],
+                [point[0] - dist, point[1]],
+                [point[0], point[1] + dist],
+                [point[0], point[1] - dist],
+                [point[0] + diag, point[1] + diag],
+                [point[0] - diag, point[1] + diag],
+                [point[0] + diag, point[1] - diag],
+                [point[0] - diag, point[1] - diag],
+            ];
+
+            points_to_check.iter().any(|&p| {
+                let d = terrain_func(p);
+                d.height <= WATER_LEVEL
+            })
+        };
+
+        trees::get_vegetation_radius(temp, moist, height, check_water_nearby())
     }
 
     // Helper to get the deterministic point for a grid cell
@@ -93,7 +80,7 @@ impl AdaptivePoisson {
         terrain_func: &F,
     ) -> Vec<Vec2>
     where
-        F: Fn([f64; 2]) -> (f64, Biome, f64),
+        F: Fn([f64; 2]) -> TerrainData,
     {
         let mut points = Vec::new();
         let cell_size = 3.5;
@@ -119,8 +106,7 @@ impl AdaptivePoisson {
                     continue;
                 }
 
-                let (height, biome, _) = terrain_func([p.x as f64, p.y as f64]);
-                let r = Self::get_radius(height, &biome, [p.x as f64, p.y as f64], terrain_func);
+                let r = Self::get_radius([p.x as f64, p.y as f64], terrain_func);
 
                 if r.is_infinite() {
                     continue;
@@ -143,13 +129,7 @@ impl AdaptivePoisson {
 
                         let (np, nh) = self.get_cell_point(nx, nz);
 
-                        let (n_height, n_biome, _) = terrain_func([np.x as f64, np.y as f64]);
-                        let nr = Self::get_radius(
-                            n_height,
-                            &n_biome,
-                            [np.x as f64, np.y as f64],
-                            terrain_func,
-                        );
+                        let nr = Self::get_radius([np.x as f64, np.y as f64], terrain_func);
 
                         let required_dist = r.max(nr);
                         let dist = p.distance(np);
@@ -179,7 +159,7 @@ impl AdaptivePoisson {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terrain::WorldTerrain;
+    use crate::terrain::{Biome, WorldTerrain};
 
     #[test]
     fn test_poisson_determinism() {
@@ -199,7 +179,7 @@ mod tests {
 
     fn generate_biome_bitmap<F>(target_biome: Biome, filename: &str, terrain_func: F)
     where
-        F: Fn([f64; 2]) -> (f64, Biome, f64),
+        F: Fn([f64; 2]) -> TerrainData,
     {
         let poisson = AdaptivePoisson::new(12345);
         let width = 4096;
@@ -209,16 +189,17 @@ mod tests {
         // Fill background with heightmap
         for x in 0..width {
             for z in 0..height {
-                let (h, _biome, grove_noise) = terrain_func([x as f64, z as f64]);
-                if h <= WATER_LEVEL {
+                let d = terrain_func([x as f64, z as f64]);
+                if d.height <= WATER_LEVEL {
                     // Distinct blue for water
-                    let depth = (WATER_LEVEL - h).clamp(0.0, 30.0);
+                    let depth = (WATER_LEVEL - d.height).clamp(0.0, 30.0);
                     let b = 255 - (depth as u8 * 4);
                     img.put_pixel(x, z, image::Rgb([0, 0, b]));
                 } else {
                     // Dimmer gray for land
-                    let intensity = ((h - WATER_LEVEL) / 80.0 * 255.0).clamp(0.0, 255.0) as u8;
-                    if grove_noise > 0.5 {
+                    let intensity =
+                        ((d.height - WATER_LEVEL) / 80.0 * 255.0).clamp(0.0, 255.0) as u8;
+                    if d.moisture > 0.5 {
                         img.put_pixel(x, z, image::Rgb([intensity / 2, intensity, intensity / 2]));
                     } else {
                         img.put_pixel(
@@ -248,11 +229,11 @@ mod tests {
                     if px < width && pz < height {
                         // TODO: color by tree type
                         let color: [u8; 3] = match target_biome {
-                            Biome::Plains => [100, 255, 100],    // Light green
-                            Biome::Hills => [150, 150, 0],       // Olive
+                            Biome::Plains => [255, 140, 0], // Dark Orange (contrast with green grove)
+                            Biome::Hills => [150, 150, 0],  // Olive
                             Biome::Mountains => [200, 200, 200], // White/Grey
-                            Biome::Desert => [255, 255, 0],      // Cactus (Yellow)
-                            Biome::Ocean => [0, 0, 255],         // Blue
+                            Biome::Desert => [255, 255, 0], // Cactus (Yellow)
+                            Biome::Ocean => [0, 0, 255],    // Blue
                         };
 
                         // Draw a small 3x3 square for visibility
@@ -279,7 +260,15 @@ mod tests {
         generate_biome_bitmap(
             Biome::Plains,
             "test_outputs/poisson_bitmap_plains.bmp",
-            |p| (gen.get([p[0] / scale, p[1] / scale]), Biome::Plains, 0.0),
+            |p| {
+                let h = gen.get([p[0] / scale, p[1] / scale]);
+                TerrainData {
+                    height: h,
+                    biome: Biome::Plains,
+                    moisture: 0.5,
+                    temperature: 0.5,
+                }
+            },
         );
     }
 
@@ -290,7 +279,12 @@ mod tests {
         generate_biome_bitmap(
             Biome::Mountains,
             "test_outputs/poisson_bitmap_mountains.bmp",
-            |p| (gen.get([p[0] / scale, p[1] / scale]), Biome::Mountains, 0.0),
+            |p| TerrainData {
+                height: gen.get([p[0] / scale, p[1] / scale]),
+                biome: Biome::Mountains,
+                moisture: 0.5,
+                temperature: 0.5,
+            },
         );
     }
 
@@ -299,8 +293,13 @@ mod tests {
         let gen = crate::terrain::HillsTerrain::new(42);
         let scale = crate::terrain::WorldTerrain::WORLD_SCALE;
         generate_biome_bitmap(Biome::Hills, "test_outputs/poisson_bitmap_hills.bmp", |p| {
-            let (h, grove) = gen.get([p[0] / scale, p[1] / scale]);
-            (h, Biome::Hills, grove)
+            let h = gen.get([p[0] / scale, p[1] / scale]);
+            TerrainData {
+                height: h,
+                biome: Biome::Hills,
+                moisture: 0.5,
+                temperature: 0.5,
+            }
         });
     }
 
@@ -311,7 +310,12 @@ mod tests {
         generate_biome_bitmap(
             Biome::Desert,
             "test_outputs/poisson_bitmap_desert.bmp",
-            |p| (gen.get([p[0] / scale, p[1] / scale]), Biome::Desert, 0.0),
+            |p| TerrainData {
+                height: gen.get([p[0] / scale, p[1] / scale]),
+                biome: Biome::Desert,
+                moisture: 0.0,
+                temperature: 1.0,
+            },
         );
     }
 }

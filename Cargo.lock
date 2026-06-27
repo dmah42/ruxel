@@ -1835,6 +1835,7 @@ dependencies = [
  "palette",
  "pollster",
  "rand 0.8.6",
+ "rayon",
  "serde",
  "toml",
  "wasm-bindgen",

@@ -15,6 +15,7 @@ use std::{
 };
 
 pub const WATER_LEVEL: f32 = 32.0;
+pub const MAX_HEIGHT: i32 = 256;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Chunk {
@@ -179,11 +180,11 @@ impl Chunks {
 
     pub fn height_at(&self, position: &Vec3) -> f32 {
         let point: [f64; 2] = [position.x as f64, position.z as f64];
-        self.terrain.get(point).0 as f32
+        self.terrain.get(point).height as f32
     }
 
     pub fn set_block(&self, x: i32, y: i32, z: i32, block_type: block::Type) {
-        if x < 0 || y < 0 || z < 0 || y >= 128 {
+        if x < 0 || y < 0 || z < 0 || y >= MAX_HEIGHT {
             return;
         }
 
@@ -220,7 +221,7 @@ impl Chunks {
                         let ny = y + dy;
                         let nz = z + dz;
 
-                        if nx < 0 || ny < 0 || nz < 0 || ny >= 128 {
+                        if nx < 0 || ny < 0 || nz < 0 || ny >= MAX_HEIGHT {
                             continue;
                         }
 
@@ -249,7 +250,7 @@ impl Chunks {
     }
 
     pub fn is_solid_at(&self, x: i32, y: i32, z: i32) -> bool {
-        if x < 0 || y < 0 || z < 0 || y >= 128 {
+        if x < 0 || y < 0 || z < 0 || y >= MAX_HEIGHT {
             return false;
         }
         let chunk_x = (x as u32) / 16;
@@ -299,7 +300,8 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
     }
 
     let mut chunks = Vec::new();
-    for chunky in 0..16 {
+    let num_chunks_y = (MAX_HEIGHT / 16) as u32;
+    for chunky in 0..num_chunks_y {
         let mut chunk = Chunk {
             blocks: [[[Block::new(); 16]; 16]; 16],
             start: Vec3::new(
@@ -316,8 +318,8 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
                     let blocky = (y as u32) + (16 * chunky);
                     let blockz = (z as u32) + (16 * key.y);
                     let point: [f64; 2] = [blockx as f64, blockz as f64];
-                    let (height_f64, biome, _) = terrain.get(point);
-                    let height = height_f64 as f32;
+                    let tdata = terrain.get(point);
+                    let height = tdata.height as f32;
 
                     if (blocky as f32) < WATER_LEVEL && (blocky as f32) >= height {
                         block.set_type(block::Type::Water);
@@ -328,7 +330,7 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
                             % 10;
                         let dither = (hash as f32) - 5.0;
 
-                        let btype = match biome {
+                        let btype = match tdata.biome {
                             Biome::Desert => {
                                 if (blocky as f32) > height - 4.0 + (dither * 0.5) {
                                     block::Type::Sand
@@ -357,9 +359,9 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
                                 }
                             }
                             Biome::Mountains => {
-                                if blocky as f32 > 95.0 + dither {
+                                if blocky as f32 > 180.0 + dither {
                                     block::Type::Ice
-                                } else if blocky as f32 > 65.0 + dither {
+                                } else if blocky as f32 > 120.0 + dither {
                                     block::Type::Rock
                                 } else if (blocky as f32) > height - 1.0 {
                                     if height < WATER_LEVEL {
