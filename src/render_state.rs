@@ -23,6 +23,12 @@ struct ChunkBuffers {
     transparent_index_buffer: Option<(wgpu::Buffer, u32)>,
 }
 
+struct EntityBuffers {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+}
+
 pub struct RenderState<'window> {
     pub size: winit::dpi::PhysicalSize<u32>,
     surface: wgpu::Surface<'window>,
@@ -55,9 +61,7 @@ pub struct RenderState<'window> {
     wireframe_index_buffer: wgpu::Buffer,
     wireframe_uniform_buffer: wgpu::Buffer,
 
-    entity_vertex_buffer: Option<wgpu::Buffer>,
-    entity_index_buffer: Option<(wgpu::Buffer, u32)>,
-    entity_version: u32,
+    entity_buffers: std::collections::HashMap<glam::UVec2, EntityBuffers>,
 
     chunk_buffers: std::collections::HashMap<glam::UVec2, Vec<Option<ChunkBuffers>>>,
     chunk_versions: std::collections::HashMap<glam::UVec2, Vec<u32>>,
@@ -466,9 +470,7 @@ impl RenderState<'static> {
             num_indices,
             wireframe_index_buffer,
             wireframe_uniform_buffer,
-            entity_vertex_buffer: None,
-            entity_index_buffer: None,
-            entity_version: u32::MAX, // Force update on first frame
+            entity_buffers: std::collections::HashMap::new(),
         }
     }
 
@@ -511,41 +513,30 @@ impl RenderState<'static> {
             bytemuck::cast_slice(&[self.sky.to_raw(self.config.format.is_srgb())]),
         );
 
-        // In Phase 1 we just concatenate all loaded cells into one big buffer for now
-        // This will be replaced by batched chunks in Phase 3
-        let current_version = scene.entity_manager().version;
-        if current_version != self.entity_version {
-            self.entity_version = current_version;
-
-            if scene.entity_manager().loaded_cells().is_empty() {
-                self.entity_vertex_buffer = None;
-                self.entity_index_buffer = None;
-            } else {
-                let mut all_vertices: Vec<Vertex> = Vec::new();
-                let mut all_indices = Vec::new();
-                for mesh in scene.entity_manager().loaded_cells().values() {
-                    let base_idx = all_vertices.len() as u32;
-                    all_vertices.extend(&mesh.vertices);
-                    all_indices.extend(mesh.indices.iter().map(|i| i + base_idx));
-                }
-
+        let loaded_cells = scene.entity_manager().loaded_cells();
+        
+        // Remove buffers for entities that are no longer loaded
+        self.entity_buffers.retain(|key, _| loaded_cells.contains_key(key));
+        
+        // Create buffers for newly loaded entity chunks
+        for (key, mesh) in loaded_cells {
+            if !self.entity_buffers.contains_key(key) && !mesh.vertices.is_empty() {
                 use wgpu::util::DeviceExt;
-                self.entity_vertex_buffer = Some(self.device.create_buffer_init(
-                    &wgpu::util::BufferInitDescriptor {
-                        label: Some("entity vertex buffer"),
-                        contents: bytemuck::cast_slice(&all_vertices),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    },
-                ));
-                self.entity_index_buffer = Some((
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("entity index buffer"),
-                            contents: bytemuck::cast_slice(&all_indices),
-                            usage: wgpu::BufferUsages::INDEX,
-                        }),
-                    all_indices.len() as u32,
-                ));
+                let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("entity chunk vertex buffer"),
+                    contents: bytemuck::cast_slice(&mesh.vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("entity chunk index buffer"),
+                    contents: bytemuck::cast_slice(&mesh.indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+                self.entity_buffers.insert(*key, EntityBuffers {
+                    vertex_buffer,
+                    index_buffer,
+                    num_indices: mesh.indices.len() as u32,
+                });
             }
         }
     }
@@ -728,13 +719,10 @@ impl RenderState<'static> {
                     }
                 }
 
-                if let Some((index_buf, num_indices)) = &self.entity_index_buffer {
-                    if let Some(vertex_buf) = &self.entity_vertex_buffer {
-                        render_pass.set_vertex_buffer(0, vertex_buf.slice(..));
-                        render_pass
-                            .set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
-                        render_pass.draw_indexed(0..*num_indices, 0, 0..1);
-                    }
+                for entity_buf in self.entity_buffers.values() {
+                    render_pass.set_vertex_buffer(0, entity_buf.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(entity_buf.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(0..entity_buf.num_indices, 0, 0..1);
                 }
             }
 
