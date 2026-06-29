@@ -32,4 +32,31 @@ impl Texture {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         Self { view }
     }
+
+    pub fn new_depth_texture_with_size(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        label: &str,
+    ) -> Self {
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let desc = wgpu::TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        };
+        let texture = device.create_texture(&desc);
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        Self { view }
+    }
 }

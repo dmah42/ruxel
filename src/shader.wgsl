@@ -30,6 +30,15 @@ struct SkyUniform {
 @group(1) @binding(0) var<uniform> sky: SkyUniform;
 @group(1) @binding(1) var<uniform> lights: LightUniforms;
 
+struct MainShadowUniform {
+  sun_view_proj: mat4x4<f32>,
+  moon_view_proj: mat4x4<f32>,
+}
+@group(2) @binding(0) var sun_shadow_map: texture_depth_2d;
+@group(2) @binding(1) var moon_shadow_map: texture_depth_2d;
+@group(2) @binding(2) var shadow_sampler: sampler_comparison;
+@group(2) @binding(3) var<uniform> shadow_cameras: MainShadowUniform;
+
 fn perez(A: vec3<f32>, B: vec3<f32>, C: vec3<f32>, D: vec3<f32>, E: vec3<f32>, Z: vec3<f32>, sunDir: vec3<f32>, viewDir: vec3<f32>) -> vec3<f32> {
     let theta = acos(max(0.001, viewDir.y));
     let gamma = acos(clamp(dot(viewDir, sunDir), -1.0, 1.0));
@@ -184,8 +193,29 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   var total_diffuse = ambient_color;
 
   let lights = lights.lights;
-  total_diffuse += light_color(lights[0], in.world_position, in.world_normal);
-  total_diffuse += light_color(lights[1], in.world_position, in.world_normal);
+  
+  // Sun shadow mapping
+  let sun_shadow_pos = shadow_cameras.sun_view_proj * vec4<f32>(in.world_position, 1.0);
+  let sun_ndc = sun_shadow_pos.xyz / sun_shadow_pos.w;
+  let sun_shadow_uv = vec2<f32>(sun_ndc.x * 0.5 + 0.5, sun_ndc.y * -0.5 + 0.5);
+  var sun_shadow_factor = 1.0;
+  
+  if (sun_shadow_uv.x >= 0.0 && sun_shadow_uv.x <= 1.0 && sun_shadow_uv.y >= 0.0 && sun_shadow_uv.y <= 1.0 && sun_ndc.z >= 0.0 && sun_ndc.z <= 1.0) {
+      sun_shadow_factor = textureSampleCompare(sun_shadow_map, shadow_sampler, sun_shadow_uv, sun_ndc.z - 0.005);
+  }
+
+  // Moon shadow mapping
+  let moon_shadow_pos = shadow_cameras.moon_view_proj * vec4<f32>(in.world_position, 1.0);
+  let moon_ndc = moon_shadow_pos.xyz / moon_shadow_pos.w;
+  let moon_shadow_uv = vec2<f32>(moon_ndc.x * 0.5 + 0.5, moon_ndc.y * -0.5 + 0.5);
+  var moon_shadow_factor = 1.0;
+  
+  if (moon_shadow_uv.x >= 0.0 && moon_shadow_uv.x <= 1.0 && moon_shadow_uv.y >= 0.0 && moon_shadow_uv.y <= 1.0 && moon_ndc.z >= 0.0 && moon_ndc.z <= 1.0) {
+      moon_shadow_factor = textureSampleCompare(moon_shadow_map, shadow_sampler, moon_shadow_uv, moon_ndc.z - 0.005);
+  }
+
+  total_diffuse += light_color(lights[0], in.world_position, in.world_normal) * sun_shadow_factor;
+  total_diffuse += light_color(lights[1], in.world_position, in.world_normal) * moon_shadow_factor;
 
   let view_dir = normalize(camera.view_pos.xyz - in.world_position);
   var spec_strength = 0.0;
@@ -201,8 +231,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
   var total_specular = vec3<f32>(0.0);
   if (spec_strength > 0.0) {
-      total_specular += specular_color(lights[0], in.world_position, in.world_normal, view_dir, shininess);
-      total_specular += specular_color(lights[1], in.world_position, in.world_normal, view_dir, shininess);
+      total_specular += specular_color(lights[0], in.world_position, in.world_normal, view_dir, shininess) * sun_shadow_factor;
+      total_specular += specular_color(lights[1], in.world_position, in.world_normal, view_dir, shininess) * moon_shadow_factor;
       total_specular *= spec_strength;
   }
 

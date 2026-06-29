@@ -8,6 +8,7 @@ use crate::{
     ui::Ui,
     vertex::{SimpleVertex, Vertex},
 };
+use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu_text::glyph_brush::{HorizontalAlign, VerticalAlign};
@@ -16,6 +17,36 @@ use wgpu_text::{
     BrushBuilder, TextBrush,
 };
 use winit::window::Window;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct MainShadowUniform {
+    sun_view_proj: [f32; 16],
+    moon_view_proj: [f32; 16],
+}
+
+impl MainShadowUniform {
+    pub fn new() -> Self {
+        Self {
+            sun_view_proj: *glam::Mat4::IDENTITY.as_ref(),
+            moon_view_proj: *glam::Mat4::IDENTITY.as_ref(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct ShadowPassUniform {
+    view_proj: [f32; 16],
+}
+
+impl ShadowPassUniform {
+    pub fn new() -> Self {
+        Self {
+            view_proj: *glam::Mat4::IDENTITY.as_ref(),
+        }
+    }
+}
 
 struct ChunkBuffers {
     vertex_buffer: wgpu::Buffer,
@@ -60,6 +91,18 @@ pub struct RenderState<'window> {
     num_indices: u32,
     wireframe_index_buffer: wgpu::Buffer,
     wireframe_uniform_buffer: wgpu::Buffer,
+
+    sun_shadow_texture: Texture,
+    moon_shadow_texture: Texture,
+    shadow_pipeline: wgpu::RenderPipeline,
+
+    main_shadow_bind_group: wgpu::BindGroup,
+    main_shadow_uniform_buffer: wgpu::Buffer,
+
+    sun_shadow_pass_bind_group: wgpu::BindGroup,
+    moon_shadow_pass_bind_group: wgpu::BindGroup,
+    sun_shadow_pass_uniform_buffer: wgpu::Buffer,
+    moon_shadow_pass_uniform_buffer: wgpu::Buffer,
 
     entity_buffers: std::collections::HashMap<glam::UVec2, EntityBuffers>,
 
@@ -138,6 +181,146 @@ impl RenderState<'static> {
             surface_config.height,
             surface_config.format,
         );
+
+        let sun_shadow_texture =
+            Texture::new_depth_texture_with_size(&device, 2048, 2048, "sun shadow depth texture");
+        let moon_shadow_texture =
+            Texture::new_depth_texture_with_size(&device, 2048, 2048, "moon shadow depth texture");
+        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("shadow sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+
+        let main_shadow_uniform = MainShadowUniform::new();
+        let main_shadow_uniform_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("main shadow uniform buffer"),
+                contents: bytemuck::cast_slice(&[main_shadow_uniform]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let shadow_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("shadow bind group layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        // sun shadow map
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Depth,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        // moon shadow map
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Depth,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        // sampler
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        // uniform
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        let main_shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("main shadow bind group"),
+            layout: &shadow_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&sun_shadow_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&moon_shadow_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: main_shadow_uniform_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        let shadow_pass_uniform = ShadowPassUniform::new();
+        let sun_shadow_pass_uniform_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("sun shadow pass uniform buffer"),
+                contents: bytemuck::cast_slice(&[shadow_pass_uniform]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+        let moon_shadow_pass_uniform_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("moon shadow pass uniform buffer"),
+                contents: bytemuck::cast_slice(&[shadow_pass_uniform]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let shadow_pass_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("shadow pass bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let sun_shadow_pass_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("sun shadow pass bind group"),
+            layout: &shadow_pass_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: sun_shadow_pass_uniform_buffer.as_entire_binding(),
+            }],
+        });
+        let moon_shadow_pass_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("moon shadow pass bind group"),
+            layout: &shadow_pass_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: moon_shadow_pass_uniform_buffer.as_entire_binding(),
+            }],
+        });
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vertex buffer"),
@@ -274,7 +457,11 @@ impl RenderState<'static> {
         let render_pipeline = {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("render pipeline layout"),
-                bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,
+                    &light_bind_group_layout,
+                    &shadow_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -285,7 +472,11 @@ impl RenderState<'static> {
         let transparent_pipeline = {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("transparent pipeline layout"),
-                bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,
+                    &light_bind_group_layout,
+                    &shadow_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -338,6 +529,53 @@ impl RenderState<'static> {
             )
             .with_topology(wgpu::PrimitiveTopology::LineList)
             .build(&device, &surface_config, Some(Texture::DEPTH_FORMAT))
+        };
+
+        let shadow_pipeline = {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("shadow pipeline layout"),
+                bind_group_layouts: &[&shadow_pass_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            let shader = device.create_shader_module(wgpu::include_wgsl!("shadow.wgsl"));
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("shadow render pipeline"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[Vertex::desc()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Front), // TODO: NoNE?
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState {
+                        constant: 2,
+                        slope_scale: 2.0,
+                        clamp: 0.0,
+                    },
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                fragment: None,
+                multiview: None,
+            })
         };
 
         let sky_render_pipeline = {
@@ -458,6 +696,15 @@ impl RenderState<'static> {
             sky,
 
             selected_block: None,
+            sun_shadow_texture,
+            moon_shadow_texture,
+            shadow_pipeline,
+            main_shadow_bind_group,
+            main_shadow_uniform_buffer,
+            sun_shadow_pass_bind_group,
+            moon_shadow_pass_bind_group,
+            sun_shadow_pass_uniform_buffer,
+            moon_shadow_pass_uniform_buffer,
             ui_brush,
             depth_texture,
             camera_uniform,
@@ -506,6 +753,67 @@ impl RenderState<'static> {
             bytemuck::cast_slice(&[scene.lights().to_raw()]),
         );
 
+        let sun_pos = scene.sun_position();
+        let moon_pos = scene.moon_position();
+
+        let size = (scene.load_radius() as f32 * 16.0) * std::f32::consts::SQRT_2;
+        let shadow_proj = glam::Mat4::orthographic_rh(-size, size, -size, size, -200.0, 200.0);
+        // Sometimes sun view looks exactly down which breaks look_at_rh, so we add a tiny epsilon to the up vector
+        let sun_up = if (sun_pos - camera.position())
+            .normalize_or_zero()
+            .dot(glam::Vec3::Y)
+            .abs()
+            > 0.999
+        {
+            glam::Vec3::X
+        } else {
+            glam::Vec3::Y
+        };
+        let sun_view = glam::Mat4::look_at_rh(sun_pos, camera.position(), sun_up);
+        // Sometimes moon view looks exactly down which breaks look_at_rh, so we add a tiny epsilon to the up vector
+        let up = if (moon_pos - camera.position())
+            .normalize_or_zero()
+            .dot(glam::Vec3::Y)
+            .abs()
+            > 0.999
+        {
+            glam::Vec3::X
+        } else {
+            glam::Vec3::Y
+        };
+        let moon_view = glam::Mat4::look_at_rh(moon_pos, camera.position(), up);
+
+        let sun_view_proj = shadow_proj * sun_view;
+        let moon_view_proj = shadow_proj * moon_view;
+
+        let main_shadow_uniform = MainShadowUniform {
+            sun_view_proj: *sun_view_proj.as_ref(),
+            moon_view_proj: *moon_view_proj.as_ref(),
+        };
+        self.queue.write_buffer(
+            &self.main_shadow_uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[main_shadow_uniform]),
+        );
+
+        let sun_shadow_pass_uniform = ShadowPassUniform {
+            view_proj: *sun_view_proj.as_ref(),
+        };
+        self.queue.write_buffer(
+            &self.sun_shadow_pass_uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[sun_shadow_pass_uniform]),
+        );
+
+        let moon_shadow_pass_uniform = ShadowPassUniform {
+            view_proj: *moon_view_proj.as_ref(),
+        };
+        self.queue.write_buffer(
+            &self.moon_shadow_pass_uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[moon_shadow_pass_uniform]),
+        );
+
         self.sky.update(dt, &scene.sun_offset());
         self.queue.write_buffer(
             self.sky.buffer(),
@@ -514,29 +822,37 @@ impl RenderState<'static> {
         );
 
         let loaded_cells = scene.entity_manager().loaded_cells();
-        
+
         // Remove buffers for entities that are no longer loaded
-        self.entity_buffers.retain(|key, _| loaded_cells.contains_key(key));
-        
+        self.entity_buffers
+            .retain(|key, _| loaded_cells.contains_key(key));
+
         // Create buffers for newly loaded entity chunks
         for (key, mesh) in loaded_cells {
             if !self.entity_buffers.contains_key(key) && !mesh.vertices.is_empty() {
                 use wgpu::util::DeviceExt;
-                let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("entity chunk vertex buffer"),
-                    contents: bytemuck::cast_slice(&mesh.vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-                let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("entity chunk index buffer"),
-                    contents: bytemuck::cast_slice(&mesh.indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
-                self.entity_buffers.insert(*key, EntityBuffers {
-                    vertex_buffer,
-                    index_buffer,
-                    num_indices: mesh.indices.len() as u32,
-                });
+                let vertex_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("entity chunk vertex buffer"),
+                            contents: bytemuck::cast_slice(&mesh.vertices),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                let index_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("entity chunk index buffer"),
+                            contents: bytemuck::cast_slice(&mesh.indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        });
+                self.entity_buffers.insert(
+                    *key,
+                    EntityBuffers {
+                        vertex_buffer,
+                        index_buffer,
+                        num_indices: mesh.indices.len() as u32,
+                    },
+                );
             }
         }
     }
@@ -659,6 +975,62 @@ impl RenderState<'static> {
             });
 
         {
+            let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("sun shadow pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.sun_shadow_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            shadow_pass.set_pipeline(&self.shadow_pipeline);
+            shadow_pass.set_bind_group(0, &self.sun_shadow_pass_bind_group, &[]);
+
+            // draw entities in shadow pass
+            for buffers in self.entity_buffers.values() {
+                shadow_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
+                shadow_pass
+                    .set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                shadow_pass.draw_indexed(0..buffers.num_indices, 0, 0..1);
+            }
+        }
+
+        {
+            let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("moon shadow pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.moon_shadow_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            shadow_pass.set_pipeline(&self.shadow_pipeline);
+            shadow_pass.set_bind_group(0, &self.moon_shadow_pass_bind_group, &[]);
+
+            // draw entities in shadow pass
+            for buffers in self.entity_buffers.values() {
+                shadow_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
+                shadow_pass
+                    .set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                shadow_pass.draw_indexed(0..buffers.num_indices, 0, 0..1);
+            }
+        }
+
+        {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -707,6 +1079,7 @@ impl RenderState<'static> {
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
+                render_pass.set_bind_group(2, &self.main_shadow_bind_group, &[]);
 
                 for chunk_col in self.chunk_buffers.values() {
                     for chunk in chunk_col.iter().flatten() {
@@ -721,7 +1094,10 @@ impl RenderState<'static> {
 
                 for entity_buf in self.entity_buffers.values() {
                     render_pass.set_vertex_buffer(0, entity_buf.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(entity_buf.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.set_index_buffer(
+                        entity_buf.index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
                     render_pass.draw_indexed(0..entity_buf.num_indices, 0, 0..1);
                 }
             }
@@ -739,6 +1115,7 @@ impl RenderState<'static> {
                 render_pass.set_pipeline(&self.transparent_pipeline);
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.light_bind_group, &[]);
+                render_pass.set_bind_group(2, &self.main_shadow_bind_group, &[]);
 
                 for chunk_col in self.chunk_buffers.values() {
                     for chunk in chunk_col.iter().flatten() {

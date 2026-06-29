@@ -87,24 +87,36 @@ impl Scene {
         }
     }
 
-    pub fn chunks(&self) -> &Chunks {
+    pub(crate) fn chunks(&self) -> &Chunks {
         &self.chunks
+    }
+
+    pub fn load_radius(&self) -> u32 {
+        self.load_radius
     }
 
     pub(crate) fn entity_manager(&self) -> &EntityManager {
         &self.entity_manager
     }
 
-    pub fn sun_offset(&self) -> Vec3 {
+    pub(crate) fn sun_offset(&self) -> Vec3 {
         self.sun_offset
     }
 
-    pub fn lights(&self) -> &Lights {
+    pub(crate) fn lights(&self) -> &Lights {
         &self.lights
     }
 
-    pub fn time(&self) -> f32 {
+    pub(crate) fn time(&self) -> f32 {
         self.sun_offset.y.atan2(self.sun_offset.x)
+    }
+
+    pub(crate) fn sun_position(&self) -> Vec3 {
+        self.lights.lights[0].position
+    }
+
+    pub(crate) fn moon_position(&self) -> Vec3 {
+        self.lights.lights[1].position
     }
 
     pub fn set_time(&mut self, t: f32) {
