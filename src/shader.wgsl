@@ -201,7 +201,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   var sun_shadow_factor = 1.0;
   
   if (sun_shadow_uv.x >= 0.0 && sun_shadow_uv.x <= 1.0 && sun_shadow_uv.y >= 0.0 && sun_shadow_uv.y <= 1.0 && sun_ndc.z >= 0.0 && sun_ndc.z <= 1.0) {
-      sun_shadow_factor = textureSampleCompare(sun_shadow_map, shadow_sampler, sun_shadow_uv, sun_ndc.z - 0.005);
+      sun_shadow_factor = textureSampleCompare(sun_shadow_map, shadow_sampler, sun_shadow_uv, sun_ndc.z - 0.0005);
   }
 
   // Moon shadow mapping
@@ -211,7 +211,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   var moon_shadow_factor = 1.0;
   
   if (moon_shadow_uv.x >= 0.0 && moon_shadow_uv.x <= 1.0 && moon_shadow_uv.y >= 0.0 && moon_shadow_uv.y <= 1.0 && moon_ndc.z >= 0.0 && moon_ndc.z <= 1.0) {
-      moon_shadow_factor = textureSampleCompare(moon_shadow_map, shadow_sampler, moon_shadow_uv, moon_ndc.z - 0.005);
+      moon_shadow_factor = textureSampleCompare(moon_shadow_map, shadow_sampler, moon_shadow_uv, moon_ndc.z - 0.0005);
   }
 
   total_diffuse += light_color(lights[0], in.world_position, in.world_normal) * sun_shadow_factor;

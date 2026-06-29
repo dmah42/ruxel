@@ -757,7 +757,7 @@ impl RenderState<'static> {
         let moon_pos = scene.moon_position();
 
         let size = (scene.load_radius() as f32 * 16.0) * std::f32::consts::SQRT_2;
-        let shadow_proj = glam::Mat4::orthographic_rh(-size, size, -size, size, -200.0, 200.0);
+        let shadow_proj = glam::Mat4::orthographic_rh(-size, size, -size, size, 0.0, 200.0);
         // Sometimes sun view looks exactly down which breaks look_at_rh, so we add a tiny epsilon to the up vector
         let sun_up = if (sun_pos - camera.position())
             .normalize_or_zero()
