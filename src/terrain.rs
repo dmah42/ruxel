@@ -11,6 +11,7 @@ fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
 }
 
 pub const WATER_LEVEL: f64 = 32.0;
+pub const BEDROCK_LEVEL: f64 = 2.0;
 
 // Specific plant altitudes
 pub const BUSH_MAX_HEIGHT: f64 = 50.0;
@@ -66,6 +67,7 @@ pub struct WorldTerrain {
     continent_noise: Fbm<Perlin>,
     temperature_noise: Fbm<Perlin>,
     moisture_noise: Fbm<Perlin>,
+    caves: CaveTerrain,
     ocean: OceanTerrain,
     plains: PlainsTerrain,
     hills: HillsTerrain,
@@ -88,6 +90,7 @@ impl WorldTerrain {
                 .set_frequency(0.15)
                 .set_octaves(4)
                 .set_persistence(0.5),
+            caves: CaveTerrain::new(seed.wrapping_add(103)),
             ocean: OceanTerrain::new(seed.wrapping_add(150)),
             plains: PlainsTerrain::new(seed.wrapping_add(200)),
             hills: HillsTerrain::new(seed.wrapping_add(300)),
@@ -156,6 +159,10 @@ impl WorldTerrain {
         };
 
         (primary_biome, weights)
+    }
+
+    pub fn is_cave(&self, point: [f64; 3], surface_height: f64) -> bool {
+        self.caves.is_cave(point, surface_height)
     }
 
     fn get_shore_t(&self, point: [f64; 2]) -> f64 {
@@ -606,6 +613,49 @@ impl DesertTerrain {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct CaveTerrain {
+    cheese_noise: Fbm<Perlin>,
+    spaghetti_noise: Fbm<Perlin>,
+}
+
+impl CaveTerrain {
+    pub(crate) fn new(seed: u32) -> Self {
+        Self {
+            cheese_noise: Fbm::<Perlin>::new(seed).set_frequency(0.015).set_octaves(3),
+            spaghetti_noise: Fbm::<Perlin>::new(seed.wrapping_add(1))
+                .set_frequency(0.01)
+                .set_octaves(2),
+        }
+    }
+
+    pub(crate) fn is_cave(&self, point: [f64; 3], surface_height: f64) -> bool {
+        // Prevent caves from eating the bottom of the world
+        if point[1] <= BEDROCK_LEVEL {
+            return false;
+        }
+
+        let depth = surface_height - point[1];
+        if depth < 10.0 {
+            return false;
+        }
+
+        let depth_factor = if depth < 50.0 {
+            (50.0 - depth) / 40.0
+        } else {
+            0.0
+        };
+
+        let cheese_val = self.cheese_noise.get(point);
+        let cheese_is_cave = cheese_val > (0.4 + depth_factor * 0.4);
+
+        let spaghetti_val = self.spaghetti_noise.get(point).abs();
+        let spaghetti_is_cave = spaghetti_val < (0.05 - depth_factor * 0.04);
+
+        cheese_is_cave || spaghetti_is_cave
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -914,5 +964,41 @@ mod tests {
         }
         img.save("test_outputs/biome_height_hills.bmp")
             .expect("Failed to save hills heightmap");
+    }
+
+    #[test]
+    fn test_cave_slices() {
+        let terrain = WorldTerrain::new(12345);
+        let grid_size = TEST_GRID_SIZE;
+        let slice_depths = [30.0, 50.0, 70.0];
+
+        let _ = std::fs::create_dir_all("test_outputs");
+
+        for (i, &depth) in slice_depths.iter().enumerate() {
+            let mut img = image::RgbImage::new(grid_size as u32, grid_size as u32);
+            for x in 0..grid_size {
+                for z in 0..grid_size {
+                    let world_x = x as f64;
+                    let world_z = z as f64;
+
+                    let tdata = terrain.get([world_x, world_z]);
+                    let surface_height = tdata.height;
+                    let y = surface_height - depth;
+
+                    if terrain.is_cave([world_x, y, world_z], surface_height) {
+                        // Cave -> Black
+                        img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, 0]));
+                    } else if y >= surface_height - 1.0 {
+                        // Surface -> Green
+                        img.put_pixel(x as u32, z as u32, image::Rgb([0, 255, 0]));
+                    } else {
+                        // Solid medium grey
+                        img.put_pixel(x as u32, z as u32, image::Rgb([128, 128, 128]));
+                    }
+                }
+            }
+            img.save(format!("test_outputs/cave_slice_{}.bmp", i))
+                .expect("Failed to save cave slice");
+        }
     }
 }

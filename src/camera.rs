@@ -247,7 +247,7 @@ impl Camera {
 
         let radius = 0.3;
         let height_below = PLAYER_HEIGHT;
-        let height_above = 0.2;
+        let height_above = 0.15;
 
         // apply gravity
         self.velocity.y -= GRAVITY * dt;

@@ -1,6 +1,6 @@
 use crate::{
     block::{self, Block},
-    terrain::{Biome, WorldTerrain},
+    terrain::{Biome, WorldTerrain, BEDROCK_LEVEL},
 };
 use glam::{IVec2, UVec2, Vec3};
 use serde::{Deserialize, Serialize};
@@ -184,7 +184,8 @@ impl Chunks {
     }
 
     pub fn set_block(&self, x: i32, y: i32, z: i32, block_type: block::Type) {
-        if x < 0 || y < 0 || z < 0 || y >= MAX_HEIGHT {
+        // Prevent modifying blocks at or below bedrock level
+        if x < 0 || y <= BEDROCK_LEVEL as i32 || z < 0 || y >= MAX_HEIGHT {
             return;
         }
 
@@ -324,57 +325,61 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
                     if (blocky as f32) < WATER_LEVEL && (blocky as f32) >= height {
                         block.set_type(block::Type::Water);
                     } else if (blocky as f32) < height {
-                        let hash = (blockx.wrapping_mul(31)
-                            ^ blocky.wrapping_mul(17)
-                            ^ blockz.wrapping_mul(23))
-                            % 10;
-                        let dither = (hash as f32) - 5.0;
+                        if !terrain
+                            .is_cave([blockx as f64, blocky as f64, blockz as f64], height as f64)
+                        {
+                            let hash = (blockx.wrapping_mul(31)
+                                ^ blocky.wrapping_mul(17)
+                                ^ blockz.wrapping_mul(23))
+                                % 10;
+                            let dither = (hash as f32) - 5.0;
 
-                        let btype = match tdata.biome {
-                            Biome::Desert => {
-                                if (blocky as f32) > height - 4.0 + (dither * 0.5) {
-                                    block::Type::Sand
-                                } else {
-                                    block::Type::Rock
-                                }
-                            }
-                            Biome::Ocean => {
-                                if (blocky as f32) > height - 2.0 + (dither * 0.5) {
-                                    block::Type::Sand
-                                } else {
-                                    block::Type::Rock
-                                }
-                            }
-                            Biome::Plains | Biome::Hills => {
-                                if (blocky as f32) > height - 1.0 {
-                                    if height < WATER_LEVEL {
+                            let btype = match tdata.biome {
+                                Biome::Desert => {
+                                    if (blocky as f32) > height - 4.0 + (dither * 0.5) {
                                         block::Type::Sand
                                     } else {
-                                        block::Type::Grass
+                                        block::Type::Rock
                                     }
-                                } else if (blocky as f32) > height - 4.0 + dither {
-                                    block::Type::Sand
-                                } else {
-                                    block::Type::Rock
                                 }
-                            }
-                            Biome::Mountains => {
-                                if blocky as f32 > 180.0 + dither {
-                                    block::Type::Ice
-                                } else if blocky as f32 > 120.0 + dither {
-                                    block::Type::Rock
-                                } else if (blocky as f32) > height - 1.0 {
-                                    if height < WATER_LEVEL {
+                                Biome::Ocean => {
+                                    if (blocky as f32) > height - 2.0 + (dither * 0.5) {
                                         block::Type::Sand
                                     } else {
-                                        block::Type::Grass
+                                        block::Type::Rock
                                     }
-                                } else {
-                                    block::Type::Rock
                                 }
-                            }
-                        };
-                        block.set_type(btype);
+                                Biome::Plains | Biome::Hills => {
+                                    if (blocky as f32) > height - 1.0 {
+                                        if height < WATER_LEVEL {
+                                            block::Type::Sand
+                                        } else {
+                                            block::Type::Grass
+                                        }
+                                    } else if (blocky as f32) > height - 4.0 + dither {
+                                        block::Type::Sand
+                                    } else {
+                                        block::Type::Rock
+                                    }
+                                }
+                                Biome::Mountains => {
+                                    if blocky as f32 > 180.0 + dither {
+                                        block::Type::Ice
+                                    } else if blocky as f32 > 120.0 + dither {
+                                        block::Type::Rock
+                                    } else if (blocky as f32) > height - 1.0 {
+                                        if height < WATER_LEVEL {
+                                            block::Type::Sand
+                                        } else {
+                                            block::Type::Grass
+                                        }
+                                    } else {
+                                        block::Type::Rock
+                                    }
+                                }
+                            };
+                            block.set_type(btype);
+                        }
                     }
                 }
             }
@@ -382,4 +387,48 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
         chunks.push(chunk);
     }
     chunks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cave_generation_in_chunk() {
+        let terrain = WorldTerrain::new(999);
+        let key = UVec2::new(0, 0);
+        let chunks = load_chunks("test_caves", &terrain, key);
+
+        let mut solid_underground = 0;
+        let mut cave_air = 0;
+
+        for chunk in chunks.iter() {
+            let chunk_y_offset = chunk.start.y as u32;
+            for (x, row) in chunk.blocks.iter().enumerate() {
+                for (y, col) in row.iter().enumerate() {
+                    for (z, block) in col.iter().enumerate() {
+                        let blocky = (y as u32) + chunk_y_offset;
+                        let world_x = x as f64;
+                        let world_z = z as f64;
+                        let height = terrain.get([world_x, world_z]).height;
+
+                        if (blocky as f64) < height - 10.0 {
+                            // deep underground
+                            if block.is_active() {
+                                solid_underground += 1;
+                            } else {
+                                cave_air += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        println!(
+            "Solid blocks: {}, Cave air blocks: {}",
+            solid_underground, cave_air
+        );
+        assert!(cave_air > 0, "No caves were generated in the test chunk!");
+    }
 }

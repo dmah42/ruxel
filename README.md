@@ -9,12 +9,10 @@ it's written in rust.
 
 1. **Dynamic World Simulation**: Implement block-update mechanics where the
    world evolves over time (e.g., trees grow, ice melts, water flows). CLOUDS!
-1. **3D Noise / Caves**: Introduce 3D noise to carve out cave networks below the
-   surface.
+   *Note: The dynamic water solution also needs to solve for the water level
+   below ground problem.*
 1. **Inventory system**: A player should be able to collect stuff by destroying
    blocks.
-1. **Shadow Mapping**: Implement directional shadows cast by the sun and moon
-   across the voxel terrain to add depth and realism to the lighting.
 1. **Interactions with entities**: Clicking on a tree should destroy the tree
    (with physics?!) and provide the player with "wood". This requires an
    inventory system.
@@ -38,3 +36,7 @@ it's written in rust.
    weather.
 
 ## Tech Debt
+
+- figure out types everywhere. we have a mix of f64, f32, and u32/i32.
+- blocks are stored in x,y,z order. they should be x,z,y order to optimise
+  memory cache and loops.
