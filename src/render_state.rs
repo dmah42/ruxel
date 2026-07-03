@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::{
+    block::Type,
     camera::{Camera, Uniform},
     scene::Scene,
     sky::Sky,
@@ -740,7 +741,12 @@ impl RenderState<'static> {
             );
         }
 
-        self.camera_uniform.update_view_proj(camera);
+        let is_underwater = scene.chunks().block_material_at(
+            camera.visual_position().x.floor() as i32,
+            camera.visual_position().y.floor() as i32,
+            camera.visual_position().z.floor() as i32,
+        ) == Type::Water as u32;
+        self.camera_uniform.update_view_proj(camera, is_underwater);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,

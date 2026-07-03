@@ -38,5 +38,3 @@ it's written in rust.
 ## Tech Debt
 
 - figure out types everywhere. we have a mix of f64, f32, and u32/i32.
-- blocks are stored in x,y,z order. they should be x,z,y order to optimise
-  memory cache and loops.

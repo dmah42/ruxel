@@ -19,6 +19,7 @@ pub const MAX_HEIGHT: i32 = 256;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Chunk {
+    // Stored as x, z, y (y is height)
     blocks: [[[Block; 16]; 16]; 16],
     start: Vec3,
     version: u32,
@@ -39,6 +40,15 @@ impl Chunk {
 
     fn increment_version(&mut self) {
         self.version = self.version.wrapping_add(1);
+    }
+
+    #[cfg(test)]
+    pub fn new(start: Vec3, blocks: [[[Block; 16]; 16]; 16]) -> Self {
+        Self {
+            blocks,
+            start,
+            version: 1,
+        }
     }
 }
 
@@ -93,10 +103,28 @@ impl Chunks {
                 for key in loader_rx {
                     let chunks = load_chunks(&world_name_clone, &terrain_clone, key);
                     log::debug!("completed loading of chunk {key}");
-                    loaded_clone
-                        .lock()
-                        .expect("locked loaded")
-                        .insert(key, chunks);
+                    let mut loaded = loaded_clone.lock().expect("locked loaded");
+                    loaded.insert(key, chunks);
+                    
+                    // Increment version of orthogonal loaded neighbors to force rebuild their boundaries
+                    for dx in -1..=1 {
+                        for dz in -1..=1 {
+                            if (dx == 0) == (dz == 0) {
+                                continue;
+                            }
+                            let nx = key.x as i32 + dx;
+                            let nz = key.y as i32 + dz;
+                            if nx >= 0 && nz >= 0 {
+                                let n_key = glam::UVec2::new(nx as u32, nz as u32);
+                                if let Some(n_col) = loaded.get_mut(&n_key) {
+                                    for n_chunk in n_col.iter_mut() {
+                                        n_chunk.increment_version();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     loading_clone.lock().expect("loading locked").remove(&key);
                 }
             })
@@ -201,7 +229,7 @@ impl Chunks {
         if let Ok(mut loaded) = self.loaded.lock() {
             if let Some(col) = loaded.get_mut(&key) {
                 if chunk_y < col.len() {
-                    col[chunk_y].blocks[lx][ly][lz].set_type(block_type);
+                    col[chunk_y].blocks[lx][lz][ly].set_type(block_type);
                     col[chunk_y].increment_version();
 
                     let path = format!("worlds/{}/chunk_{}_{}.bin", self.world_name, key.x, key.y);
@@ -238,7 +266,7 @@ impl Chunks {
                                     let nly = (ny as usize) % 16;
                                     let nlz = (nz as usize) % 16;
 
-                                    if n_col[ncy].blocks()[nlx][nly][nlz].is_active() {
+                                    if n_col[ncy].blocks()[nlx][nlz][nly].is_active() {
                                         n_col[ncy].increment_version();
                                     }
                                 }
@@ -255,8 +283,8 @@ impl Chunks {
             return false;
         }
         let chunk_x = (x as u32) / 16;
-        let chunk_z = (z as u32) / 16;
         let chunk_y = (y as usize) / 16;
+        let chunk_z = (z as u32) / 16;
 
         let lx = (x as usize) % 16;
         let ly = (y as usize) % 16;
@@ -266,13 +294,36 @@ impl Chunks {
         if let Ok(loaded) = self.loaded.lock() {
             if let Some(col) = loaded.get(&key) {
                 if chunk_y < col.len() {
-                    return col[chunk_y].blocks()[lx][ly][lz].is_solid();
+                    return col[chunk_y].blocks()[lx][lz][ly].is_solid();
                 }
                 return false;
             }
         }
 
         false
+    }
+
+    pub fn block_material_at(&self, x: i32, y: i32, z: i32) -> u32 {
+        if x < 0 || y < 0 || z < 0 || y >= MAX_HEIGHT {
+            return 0;
+        }
+        let chunk_x = (x as u32) / 16;
+        let chunk_y = (y as usize) / 16;
+        let chunk_z = (z as u32) / 16;
+
+        let lx = (x as usize) % 16;
+        let ly = (y as usize) % 16;
+        let lz = (z as usize) % 16;
+
+        let key = UVec2::new(chunk_x, chunk_z);
+        if let Ok(loaded) = self.loaded.lock() {
+            if let Some(col) = loaded.get(&key) {
+                if chunk_y < col.len() {
+                    return col[chunk_y].blocks()[lx][lz][ly].material_id();
+                }
+            }
+        }
+        0
     }
 
     pub fn is_chunk_loaded(&self, x: i32, z: i32) -> bool {
@@ -313,73 +364,76 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
             version: 1,
         };
         for (x, row) in chunk.blocks.iter_mut().enumerate() {
-            for (y, col) in row.iter_mut().enumerate() {
-                for (z, block) in col.iter_mut().enumerate() {
-                    let blockx = (x as u32) + (16 * key.x);
+            for (z, col) in row.iter_mut().enumerate() {
+                let blockx = (x as u32) + (16 * key.x);
+                let blockz = (z as u32) + (16 * key.y);
+                let point: [f64; 2] = [blockx as f64, blockz as f64];
+                let tdata = terrain.get(point);
+                for (y, block) in col.iter_mut().enumerate() {
                     let blocky = (y as u32) + (16 * chunky);
-                    let blockz = (z as u32) + (16 * key.y);
-                    let point: [f64; 2] = [blockx as f64, blockz as f64];
-                    let tdata = terrain.get(point);
+                    let blockyf32 = blocky as f32;
                     let height = tdata.height as f32;
 
-                    if (blocky as f32) < WATER_LEVEL && (blocky as f32) >= height {
-                        block.set_type(block::Type::Water);
-                    } else if (blocky as f32) < height {
-                        if !terrain
-                            .is_cave([blockx as f64, blocky as f64, blockz as f64], height as f64)
-                        {
-                            let hash = (blockx.wrapping_mul(31)
-                                ^ blocky.wrapping_mul(17)
-                                ^ blockz.wrapping_mul(23))
-                                % 10;
-                            let dither = (hash as f32) - 5.0;
+                    let point3d: [f64; 3] = [blockx as f64, blocky as f64, blockz as f64];
 
-                            let btype = match tdata.biome {
-                                Biome::Desert => {
-                                    if (blocky as f32) > height - 4.0 + (dither * 0.5) {
+                    if terrain.is_cave(point3d, tdata.height) {
+                        continue;
+                    }
+
+                    if blockyf32 < WATER_LEVEL && blockyf32 >= height {
+                        block.set_type(block::Type::Water);
+                    } else if blockyf32 < height {
+                        let hash = (blockx.wrapping_mul(31)
+                            ^ blocky.wrapping_mul(17)
+                            ^ blockz.wrapping_mul(23))
+                            % 10;
+                        let dither = (hash as f32) - 5.0;
+
+                        let btype = match tdata.biome {
+                            Biome::Desert => {
+                                if blockyf32 > height - 4.0 + (dither * 0.5) {
+                                    block::Type::Sand
+                                } else {
+                                    block::Type::Rock
+                                }
+                            }
+                            Biome::Ocean => {
+                                if blockyf32 > height - 2.0 + (dither * 0.5) {
+                                    block::Type::Sand
+                                } else {
+                                    block::Type::Rock
+                                }
+                            }
+                            Biome::Plains | Biome::Hills => {
+                                if blockyf32 > height - 1.0 {
+                                    if height < WATER_LEVEL {
                                         block::Type::Sand
                                     } else {
-                                        block::Type::Rock
+                                        block::Type::Grass
                                     }
+                                } else if blockyf32 > height - 4.0 + dither {
+                                    block::Type::Sand
+                                } else {
+                                    block::Type::Rock
                                 }
-                                Biome::Ocean => {
-                                    if (blocky as f32) > height - 2.0 + (dither * 0.5) {
+                            }
+                            Biome::Mountains => {
+                                if blockyf32 > 180.0 + dither {
+                                    block::Type::Ice
+                                } else if blockyf32 > 120.0 + dither {
+                                    block::Type::Rock
+                                } else if (blockyf32) > height - 1.0 {
+                                    if height < WATER_LEVEL {
                                         block::Type::Sand
                                     } else {
-                                        block::Type::Rock
+                                        block::Type::Grass
                                     }
+                                } else {
+                                    block::Type::Rock
                                 }
-                                Biome::Plains | Biome::Hills => {
-                                    if (blocky as f32) > height - 1.0 {
-                                        if height < WATER_LEVEL {
-                                            block::Type::Sand
-                                        } else {
-                                            block::Type::Grass
-                                        }
-                                    } else if (blocky as f32) > height - 4.0 + dither {
-                                        block::Type::Sand
-                                    } else {
-                                        block::Type::Rock
-                                    }
-                                }
-                                Biome::Mountains => {
-                                    if blocky as f32 > 180.0 + dither {
-                                        block::Type::Ice
-                                    } else if blocky as f32 > 120.0 + dither {
-                                        block::Type::Rock
-                                    } else if (blocky as f32) > height - 1.0 {
-                                        if height < WATER_LEVEL {
-                                            block::Type::Sand
-                                        } else {
-                                            block::Type::Grass
-                                        }
-                                    } else {
-                                        block::Type::Rock
-                                    }
-                                }
-                            };
-                            block.set_type(btype);
-                        }
+                            }
+                        };
+                        block.set_type(btype);
                     }
                 }
             }
@@ -405,12 +459,12 @@ mod tests {
         for chunk in chunks.iter() {
             let chunk_y_offset = chunk.start.y as u32;
             for (x, row) in chunk.blocks.iter().enumerate() {
-                for (y, col) in row.iter().enumerate() {
-                    for (z, block) in col.iter().enumerate() {
+                for (z, col) in row.iter().enumerate() {
+                    let world_x = x as f64;
+                    let world_z = z as f64;
+                    let height = terrain.get([world_x, world_z]).height;
+                    for (y, block) in col.iter().enumerate() {
                         let blocky = (y as u32) + chunk_y_offset;
-                        let world_x = x as f64;
-                        let world_z = z as f64;
-                        let height = terrain.get([world_x, world_z]).height;
 
                         if (blocky as f64) < height - 10.0 {
                             // deep underground

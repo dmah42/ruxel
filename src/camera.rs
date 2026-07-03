@@ -21,7 +21,7 @@ pub struct Uniform {
     water_level: f32,
     fog_start_sq: f32,
     fog_end_sq: f32,
-    _padding: f32,
+    is_underwater: f32,
 }
 
 impl Uniform {
@@ -33,11 +33,11 @@ impl Uniform {
             water_level: WATER_LEVEL,
             fog_start_sq: 0.0,
             fog_end_sq: 0.0,
-            _padding: 0.0,
+            is_underwater: 0.0,
         }
     }
 
-    pub fn update_view_proj(&mut self, camera: &Camera) {
+    pub fn update_view_proj(&mut self, camera: &Camera, is_underwater: bool) {
         let vp = camera.projection.matrix() * camera.matrix();
         self.view_proj = *vp.as_ref();
         self.inv_view_proj = *vp.inverse().as_ref();
@@ -46,6 +46,7 @@ impl Uniform {
 
         self.fog_start_sq = camera.fog_start * camera.fog_start;
         self.fog_end_sq = camera.fog_end * camera.fog_end;
+        self.is_underwater = if is_underwater { 1.0 } else { 0.0 };
     }
 }
 

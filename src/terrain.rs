@@ -302,6 +302,51 @@ impl WorldTerrain {
         None
     }
 
+    pub fn find_closest_cave(
+        &self,
+        start_x: f64,
+        start_z: f64,
+    ) -> Option<[f64; 3]> {
+        let step_size = 4.0;
+        let max_steps = 150 * 150; // Search up to ~600 blocks radius
+
+        let mut x = 0;
+        let mut z = 0;
+        let mut dx = 0;
+        let mut dz = -1;
+
+        for _ in 0..max_steps {
+            let px = start_x + (x as f64 * step_size);
+            let pz = start_z + (z as f64 * step_size);
+
+            if px >= 0.0 && pz >= 0.0 {
+                let tdata = self.get([px, pz]);
+                let surface_height = tdata.height;
+                let min_y = BEDROCK_LEVEL + 1.0;
+                let max_y = surface_height - 10.0;
+                if max_y > min_y {
+                    let mut y = min_y;
+                    while y <= max_y {
+                        if self.is_cave([px, y, pz], surface_height) {
+                            return Some([px, y, pz]);
+                        }
+                        y += 4.0;
+                    }
+                }
+            }
+
+            if x == z || (x < 0 && x == -z) || (x > 0 && x == 1 - z) {
+                let temp = dx;
+                dx = -dz;
+                dz = temp;
+            }
+
+            x += dx;
+            z += dz;
+        }
+        None
+    }
+
     pub fn biome_blend_string(&self, point: [f64; 2]) -> String {
         let shore_t = self.get_shore_t(point);
 
@@ -970,11 +1015,11 @@ mod tests {
     fn test_cave_slices() {
         let terrain = WorldTerrain::new(12345);
         let grid_size = TEST_GRID_SIZE;
-        let slice_depths = [30.0, 50.0, 70.0];
+        let slice_heights = [10.0, 20.0, 30.0];
 
         let _ = std::fs::create_dir_all("test_outputs");
 
-        for (i, &depth) in slice_depths.iter().enumerate() {
+        for (i, &y) in slice_heights.iter().enumerate() {
             let mut img = image::RgbImage::new(grid_size as u32, grid_size as u32);
             for x in 0..grid_size {
                 for z in 0..grid_size {
@@ -983,13 +1028,12 @@ mod tests {
 
                     let tdata = terrain.get([world_x, world_z]);
                     let surface_height = tdata.height;
-                    let y = surface_height - depth;
 
                     if terrain.is_cave([world_x, y, world_z], surface_height) {
                         // Cave -> Black
                         img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, 0]));
                     } else if y >= surface_height - 1.0 {
-                        // Surface -> Green
+                        // Surface/Air -> Green
                         img.put_pixel(x as u32, z as u32, image::Rgb([0, 255, 0]));
                     } else {
                         // Solid medium grey
@@ -1000,5 +1044,18 @@ mod tests {
             img.save(format!("test_outputs/cave_slice_{}.bmp", i))
                 .expect("Failed to save cave slice");
         }
+    }
+
+    #[test]
+    fn test_find_closest_cave() {
+        let terrain = WorldTerrain::new(12345);
+        let result = terrain.find_closest_cave(0.0, 0.0);
+        assert!(result.is_some(), "Should find a cave near the origin.");
+        let point = result.unwrap();
+        let tdata = terrain.get([point[0], point[2]]);
+        assert!(
+            terrain.is_cave([point[0], point[1], point[2]], tdata.height),
+            "The returned coordinates should point to an actual cave!"
+        );
     }
 }

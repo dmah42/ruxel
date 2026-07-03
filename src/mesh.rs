@@ -35,25 +35,25 @@ impl ChunkMesh {
         let start = chunk.start();
 
         let is_opaque = |wx: i32, wy: i32, wz: i32| -> bool {
-            let cx = wx - start.x as i32;
-            let cy = wy - start.y as i32;
-            let cz = wz - start.z as i32;
+            let cx = (wx - start.x as i32) as usize;
+            let cy = (wy - start.y as i32) as usize;
+            let cz = (wz - start.z as i32) as usize;
 
             if (0..16).contains(&cx) && (0..16).contains(&cy) && (0..16).contains(&cz) {
-                let n = &blocks[cx as usize][cy as usize][cz as usize];
+                let n = &blocks[cx][cz][cy];
                 n.is_active() && n.color().a == 1.0
             } else {
                 let chunk_x = (wx as f32 / 16.0).floor() as i32;
                 let chunk_z = (wz as f32 / 16.0).floor() as i32;
-                let cy_index = (wy as f32 / 16.0).floor() as i32;
-                
+                let cy_index = (wy as f32 / 16.0).floor() as usize;
+
                 if chunk_x >= 0 && chunk_z >= 0 && (0..16).contains(&cy_index) {
                     let neighbor_key = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
                     if let Some(col) = loaded_chunks.get(&neighbor_key) {
                         let lx = wx.rem_euclid(16) as usize;
                         let ly = wy.rem_euclid(16) as usize;
                         let lz = wz.rem_euclid(16) as usize;
-                        let n = &col[cy_index as usize].blocks()[lx][ly][lz];
+                        let n = &col[cy_index].blocks()[lx][lz][ly];
                         return n.is_active() && n.color().a == 1.0;
                     }
                 }
@@ -65,25 +65,25 @@ impl ChunkMesh {
         };
 
         let is_transparent_block = |wx: i32, wy: i32, wz: i32| -> bool {
-            let cx = wx - start.x as i32;
-            let cy = wy - start.y as i32;
-            let cz = wz - start.z as i32;
+            let cx = (wx - start.x as i32) as usize;
+            let cy = (wy - start.y as i32) as usize;
+            let cz = (wz - start.z as i32) as usize;
 
             if (0..16).contains(&cx) && (0..16).contains(&cy) && (0..16).contains(&cz) {
-                let n = &blocks[cx as usize][cy as usize][cz as usize];
+                let n = &blocks[cx][cz][cy];
                 n.is_active() && n.color().a < 1.0
             } else {
                 let chunk_x = (wx as f32 / 16.0).floor() as i32;
                 let chunk_z = (wz as f32 / 16.0).floor() as i32;
-                let cy_index = (wy as f32 / 16.0).floor() as i32;
-                
+                let cy_index = (wy as f32 / 16.0).floor() as usize;
+
                 if chunk_x >= 0 && chunk_z >= 0 && (0..16).contains(&cy_index) {
                     let neighbor_key = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
                     if let Some(col) = loaded_chunks.get(&neighbor_key) {
                         let lx = wx.rem_euclid(16) as usize;
                         let ly = wy.rem_euclid(16) as usize;
                         let lz = wz.rem_euclid(16) as usize;
-                        let n = &col[cy_index as usize].blocks()[lx][ly][lz];
+                        let n = &col[cy_index].blocks()[lx][lz][ly];
                         return n.is_active() && n.color().a < 1.0;
                     }
                 }
@@ -109,8 +109,8 @@ impl ChunkMesh {
         };
 
         for (x, slice_x) in blocks.iter().enumerate().take(16) {
-            for (y, slice_y) in slice_x.iter().enumerate().take(16) {
-                for (z, block) in slice_y.iter().enumerate().take(16) {
+            for (z, slice_z) in slice_x.iter().enumerate().take(16) {
+                for (y, block) in slice_z.iter().enumerate().take(16) {
                     if !block.is_active() {
                         continue;
                     }
@@ -354,6 +354,56 @@ impl ChunkMesh {
             vertices,
             opaque_indices,
             transparent_indices,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block::{Block, Type};
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_chunk_mesh_generation() {
+        let mut blocks = [[[Block::new(); 16]; 16]; 16];
+        // Set a block at local x=2, z=4, y=3
+        blocks[2][4][3].set_type(Type::Grass);
+
+        let chunk = Chunk::new(Vec3::ZERO, blocks);
+        let loaded_chunks = HashMap::new();
+        let terrain = WorldTerrain::new(12345);
+
+        let mesh = ChunkMesh::build(&chunk, &loaded_chunks, &terrain);
+
+        // A single active grass block with nothing else in the chunk should generate a full cube (6 faces).
+        // 6 faces * 4 vertices = 24 vertices
+        // 6 faces * 6 indices = 36 indices
+        assert_eq!(mesh.opaque_indices().len(), 36);
+        assert_eq!(mesh.vertices().len(), 24);
+
+        // Verify that the generated vertices' positions map exactly to the local block coordinates (x=2, y=3, z=4)
+        // because the chunk start is at Vec3::ZERO.
+        // x should be in [2.0, 3.0]
+        // y (height) should be in [3.0, 4.0]
+        // z (depth) should be in [4.0, 5.0]
+        for vertex in mesh.vertices() {
+            let pos = vertex.position();
+            assert!(
+                pos[0] >= 2.0 && pos[0] <= 3.0,
+                "Expected x in [2.0, 3.0], got {}",
+                pos[0]
+            );
+            assert!(
+                pos[1] >= 3.0 && pos[1] <= 4.0,
+                "Expected y in [3.0, 4.0], got {}",
+                pos[1]
+            );
+            assert!(
+                pos[2] >= 4.0 && pos[2] <= 5.0,
+                "Expected z in [4.0, 5.0], got {}",
+                pos[2]
+            );
         }
     }
 }
