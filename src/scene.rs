@@ -48,7 +48,12 @@ pub struct Scene {
 impl Scene {
     pub fn new(seed: u32, config: Config) -> Self {
         let load_radius = config.chunk_load_radius;
-        let chunks = Chunks::new(config.active_world.clone(), seed, load_radius);
+        let chunks = Chunks::new(
+            config.active_world.clone(),
+            seed,
+            load_radius,
+            config.sim_rate_ms,
+        );
         let entity_manager = EntityManager::new(seed, chunks.terrain().clone());
 
         // TODO: position sun relative to player always.

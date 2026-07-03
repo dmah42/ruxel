@@ -16,12 +16,18 @@ pub struct WorldConfig {
     pub camera: Option<CameraConfig>,
 }
 
+fn default_sim_rate_ms() -> u64 {
+    200
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub chunk_load_radius: u32,
     pub log_level: String,
     pub fov: f32,
     pub active_world: String,
+    #[serde(default = "default_sim_rate_ms")]
+    pub sim_rate_ms: u64,
     #[serde(default)]
     pub worlds: HashMap<String, WorldConfig>,
 }
@@ -42,6 +48,7 @@ impl Default for Config {
             log_level: "warn".to_string(),
             fov: 75.0,
             active_world: "funky_town".to_string(),
+            sim_rate_ms: default_sim_rate_ms(),
             worlds,
         }
     }

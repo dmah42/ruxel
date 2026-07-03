@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Type {
     Inactive = 0,
     Sand = 1,
@@ -13,17 +13,49 @@ pub enum Type {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Block {
     ty: Type,
+    level: u8,
+    is_source: bool,
 }
 
 impl Block {
     pub fn new() -> Self {
-        Self { ty: Type::Inactive }
+        Self {
+            ty: Type::Inactive,
+            level: 0,
+            is_source: false,
+        }
     }
 
     pub fn set_type(&mut self, ty: Type) {
         self.ty = ty;
+        if !matches!(ty, Type::Water) {
+            self.level = 0;
+            self.is_source = false;
+        } else if self.level == 0 {
+            self.level = 8;
+            self.is_source = true;
+        }
     }
 
+    pub fn ty(&self) -> Type {
+        self.ty
+    }
+
+    pub fn level(&self) -> u8 {
+        self.level
+    }
+
+    pub fn set_level(&mut self, level: u8) {
+        self.level = level;
+    }
+
+    pub fn is_source(&self) -> bool {
+        self.is_source
+    }
+
+    pub fn set_source(&mut self, is_source: bool) {
+        self.is_source = is_source;
+    }
     pub fn is_active(&self) -> bool {
         !matches!(self.ty, Type::Inactive)
     }
