@@ -39,6 +39,10 @@ jobs:
       - name: Build release binary
         run: make build_release
 
+      - name: Create test outputs directory
+        run: mkdir -p test_outputs
+        shell: bash
+
       - name: Run tests
         run: make test_release
 
