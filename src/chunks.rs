@@ -341,15 +341,10 @@ impl Chunks {
 
         // Trigger queue updates for water simulation
         if let Ok(mut queue) = self.water_queue.lock() {
-            if matches!(block_type, block::Type::Water) {
-                queue.insert(IVec3::new(x, y, z));
-            } else {
-                // If a solid block is placed or block is destroyed, queue neighbors
-                for dx in -1..=1 {
-                    for dy in -1..=1 {
-                        for dz in -1..=1 {
-                            queue.insert(IVec3::new(x + dx, y + dy, z + dz));
-                        }
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        queue.insert(IVec3::new(x + dx, y + dy, z + dz));
                     }
                 }
             }
@@ -761,9 +756,17 @@ mod tests {
             col[0].blocks[5][5][8].set_source(true);
         }
 
-        // Queue the water source position
-        let start_pos = IVec3::new(5, 8, 5);
-        water_queue.lock().unwrap().insert(start_pos);
+        // Queue the water source position and its neighbors
+        {
+            let mut q = water_queue.lock().unwrap();
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        q.insert(IVec3::new(5 + dx, 8 + dy, 5 + dz));
+                    }
+                }
+            }
+        }
 
         // Run tick 1: water should flow down to (5, 7, 5)
         let mut jobs = std::mem::take(&mut *water_queue.lock().unwrap());
@@ -806,7 +809,16 @@ mod tests {
             col[0].blocks[5][5][8].set_type(block::Type::Inactive);
             col[0].blocks[5][5][8].set_level(0);
         }
-        water_queue.lock().unwrap().insert(start_pos);
+        {
+            let mut q = water_queue.lock().unwrap();
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        q.insert(IVec3::new(5 + dx, 8 + dy, 5 + dz));
+                    }
+                }
+            }
+        }
 
         // Tick several times: water should recede
         for _ in 0..10 {
