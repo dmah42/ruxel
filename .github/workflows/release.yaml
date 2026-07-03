@@ -47,7 +47,7 @@ jobs:
         run: make test_release
 
       - name: Upload Binary to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: target/release/${{ matrix.artifact_name }}
           # Rename the files so they clearly state the OS in the release tab
