@@ -9,8 +9,6 @@ it's written in rust.
 
 1. **Dynamic World Simulation**: Implement block-update mechanics where the
    world evolves over time (e.g., trees grow, ice melts, water flows). CLOUDS!
-   *Note: The dynamic water solution also needs to solve for the water level
-   below ground problem.*
 1. **Inventory system**: A player should be able to collect stuff by destroying
    blocks.
 1. **Interactions with entities**: Clicking on a tree should destroy the tree
