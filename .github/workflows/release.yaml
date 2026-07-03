@@ -46,10 +46,23 @@ jobs:
       - name: Run tests
         run: make test_release
 
+
+      - name: Package Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          compress-archive -path target/release/ruxel.exe -destinationpath ruxel-windows.zip
+
+      - name: Package macOS
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd target/release
+          zip -r ../../ruxel-macos.zip ruxel
+
       - name: Upload Binary to Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
-          files: target/release/${{ matrix.artifact_name }}
-          # Rename the files so they clearly state the OS in the release tab
+          files: |
+            ruxel-windows.zip
+            ruxel-macos.zip
           name: Release ${{ github.ref_name }}
-          draft: true # Saves it as a draft so you can review before publishing
+          draft: true
