@@ -3,6 +3,7 @@ use std::time::Duration;
 use crate::{
     block::Type,
     camera::{Camera, Uniform},
+    config::Config,
     scene::Scene,
     sky::Sky,
     texture::Texture,
@@ -113,10 +114,11 @@ pub struct RenderState<'window> {
     lights_buffer: wgpu::Buffer,
 
     sky: Sky,
+    game_config: Config,
 }
 
 impl RenderState<'static> {
-    pub async fn new(_config: crate::config::Config, window: Arc<Window>) -> Self {
+    pub async fn new(config: Config, window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -719,6 +721,7 @@ impl RenderState<'static> {
             wireframe_index_buffer,
             wireframe_uniform_buffer,
             entity_buffers: std::collections::HashMap::new(),
+            game_config: config,
         }
     }
 
@@ -887,6 +890,9 @@ impl RenderState<'static> {
                 }
             }
         }
+
+        // Rate-limit the number of chunks we rebuild in a single frame to prevent stutters
+        dirty_chunks.truncate(self.game_config.max_remesh_per_frame);
 
         let mut new_meshes = Vec::new();
         for (key, i, version) in dirty_chunks {
@@ -1172,13 +1178,23 @@ impl RenderState<'static> {
 
             let center = (self.size.width as f32 / 2.0, self.size.height as f32 / 2.0);
 
-            let mut text_sections = vec![Section::default()
-                .add_text(
-                    Text::new(&ui.target)
-                        .with_scale(48.0)
-                        .with_color([0.0, 0.0, 0.0, 0.7]),
-                )
-                .with_screen_position(center)];
+            let mut text_sections = vec![
+                Section::default()
+                    .add_text(
+                        Text::new(&ui.target)
+                            .with_scale(48.0)
+                            .with_color([0.0, 0.0, 0.0, 0.7]),
+                    )
+                    .with_screen_position(center),
+                Section::default()
+                    .add_text(
+                        Text::new(&ui.selected_block)
+                            .with_scale(28.0)
+                            .with_color([0.9, 0.5, 0.9, 1.0]),
+                    )
+                    .with_screen_position((self.size.width as f32 - 20.0, 20.0))
+                    .with_layout(Layout::default().h_align(HorizontalAlign::Right)),
+            ];
 
             if ui.is_console_open {
                 let scale = 28.0;

@@ -509,7 +509,6 @@ fn get_block_at(loaded: &HashMap<UVec2, Vec<Chunk>>, x: i32, y: i32, z: i32) -> 
 
 fn set_block_in_sim(
     loaded: &mut HashMap<UVec2, Vec<Chunk>>,
-    world_name: &str,
     pos: IVec3,
     block_type: block::Type,
     level: u8,
@@ -543,12 +542,6 @@ fn set_block_in_sim(
                 block.set_source(is_source);
                 col[chunk_y].increment_version();
                 modified_chunks.insert(key);
-
-                // Serialize chunk changes to disk
-                let path = format!("worlds/{}/chunk_{}_{}.bin", world_name, key.x, key.y);
-                if let Ok(data) = bincode::serialize(col) {
-                    let _ = std::fs::write(&path, data);
-                }
             }
         }
     }
@@ -634,21 +627,68 @@ fn tick_water_simulation(
                 target_level = 8;
                 target_is_source = false;
             } else {
-                // Check horizontal neighbors for water.
-                let mut max_neighbor_level = 0;
-                let dirs = [(1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1)];
-                for &(dx, dy, dz) in dirs.iter() {
-                    if let Some(b) = get_block_at(&loaded, x + dx, y + dy, z + dz) {
-                        if matches!(b.ty(), block::Type::Water) && b.level() > max_neighbor_level {
-                            max_neighbor_level = b.level();
+                // Check block below target
+                let block_below_target = get_block_at(&loaded, x, y - 1, z);
+                
+                let (is_below_target_water, is_below_target_air) = match block_below_target {
+                    Some(b) => match b.ty() {
+                        block::Type::Water => {
+                            if b.is_source() {
+                                (true, false) // Ocean/source water: treat as water boundary
+                            } else {
+                                (false, true) // Falling water: treat as downward/air path
+                            }
+                        }
+                        block::Type::Inactive => (false, true),
+                        _ => (false, false), // Solid ground
+                    },
+                    None => (false, true), // Unloaded or empty: treat as air/downward path
+                };
+
+                if is_below_target_water {
+                    // Do not allow horizontal spread over existing water sources (like oceans)
+                    target_type = block::Type::Inactive;
+                    target_level = 0;
+                    target_is_source = false;
+                } else {
+                    // Check horizontal neighbors for water.
+                    let mut max_neighbor_level = 0;
+                    let dirs = [(1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1)];
+                    for &(dx, dy, dz) in dirs.iter() {
+                        let nx = x + dx;
+                        let ny = y + dy;
+                        let nz = z + dz;
+                        if let Some(b) = get_block_at(&loaded, nx, ny, nz) {
+                            if matches!(b.ty(), block::Type::Water) {
+                                // Gravity-first check: only spread if neighbor is a source block OR is resting on a solid block
+                                let can_spread = b.is_source() || {
+                                    let below_neighbor = get_block_at(&loaded, nx, ny - 1, nz);
+                                    below_neighbor.is_some_and(|below| below.is_solid())
+                                };
+
+                                if can_spread && b.level() > max_neighbor_level {
+                                    max_neighbor_level = b.level();
+                                }
+                            }
                         }
                     }
-                }
 
-                if max_neighbor_level > 1 {
-                    target_type = block::Type::Water;
-                    target_level = max_neighbor_level - 1;
-                    target_is_source = false;
+                    // Determine target level
+                    let computed_level = if is_below_target_air {
+                        if max_neighbor_level >= 1 {
+                            std::cmp::max(1, max_neighbor_level.saturating_sub(1))
+                        } else {
+                            0
+                        }
+                    } else {
+                        max_neighbor_level.saturating_sub(1)
+                    };
+
+                    if computed_level >= 1 {
+                        target_type = block::Type::Water;
+                        target_level = computed_level;
+                        target_is_source = false;
+                    }
                 }
             }
         }
@@ -661,7 +701,6 @@ fn tick_water_simulation(
             // Update the block
             set_block_in_sim(
                 &mut loaded,
-                world_name,
                 *pos,
                 target_type,
                 target_level,
@@ -681,6 +720,16 @@ fn tick_water_simulation(
             ];
             for &(dx, dy, dz) in dirs.iter() {
                 next_queue.insert(IVec3::new(x + dx, y + dy, z + dz));
+            }
+        }
+    }
+
+    // Batch write modified chunks to disk before completing tick
+    for key in modified_chunks.iter() {
+        if let Some(col) = loaded.get(key) {
+            let path = format!("worlds/{}/chunk_{}_{}.bin", world_name, key.x, key.y);
+            if let Ok(data) = bincode::serialize(col) {
+                let _ = std::fs::write(&path, data);
             }
         }
     }
@@ -825,6 +874,143 @@ mod tests {
         for _ in 0..10 {
             let mut jobs = std::mem::take(&mut *water_queue.lock().unwrap());
             tick_water_simulation("test_water", &loaded, &water_queue, &mut jobs);
+        }
+    }
+
+    #[test]
+    fn test_gravity_first_water_flow() {
+        let loaded = Arc::new(Mutex::new(HashMap::new()));
+        let water_queue = Arc::new(Mutex::new(HashSet::new()));
+
+        // Create a 16x16x16 chunk at origin
+        let mut blocks = [[[Block::new(); 16]; 16]; 16];
+
+        // Create a platform of solid blocks at Y=5 (Z=5 in internal array)
+        for x in 5..=10 {
+            blocks[x][5][5].set_type(block::Type::Rock);
+        }
+
+        let chunk = Chunk::new(Vec3::new(0.0, 0.0, 0.0), blocks);
+        let key = UVec2::new(0, 0);
+        loaded.lock().unwrap().insert(key, vec![chunk]);
+
+        // Place a water source block at (7, 6, 5) (x=7, z=5, y=6)
+        // Its floor (7, 5, 5) is solid rock.
+        {
+            let mut l = loaded.lock().unwrap();
+            let col = l.get_mut(&key).unwrap();
+            col[0].blocks[7][5][6].set_type(block::Type::Water);
+            col[0].blocks[7][5][6].set_level(8);
+            col[0].blocks[7][5][6].set_source(true);
+        }
+
+        // Queue the water source and its neighbors
+        {
+            let mut q = water_queue.lock().unwrap();
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        q.insert(IVec3::new(7 + dx, 6 + dy, 5 + dz));
+                    }
+                }
+            }
+        }
+
+        // Tick several times to let it spread
+        for _ in 0..10 {
+            let mut jobs = std::mem::take(&mut *water_queue.lock().unwrap());
+            tick_water_simulation("test_water", &loaded, &water_queue, &mut jobs);
+        }
+
+        // Verify:
+        // 1. (7, 6, 5) is the source (Water, level 8)
+        // 2. (8, 6, 5) is Water (level 7)
+        // 3. (9, 6, 5) is Water (level 6)
+        // 4. (10, 6, 5) is Water (level 5)
+        // 5. (11, 6, 5) is above air (since platform ends at x=10). It should be Water (level 4).
+        // 6. But it should NOT spread horizontally further to (12, 6, 5) in mid-air because the floor below (11, 5, 5) is air.
+        {
+            let l = loaded.lock().unwrap();
+
+            // Source block
+            let source = get_block_at(&l, 7, 6, 5).unwrap();
+            assert_eq!(source.ty(), block::Type::Water);
+
+            // Flow on ground (x=10, y=6, z=5)
+            let flow_on_ground = get_block_at(&l, 10, 6, 5).unwrap();
+            assert_eq!(flow_on_ground.ty(), block::Type::Water);
+
+            // Flow just past the edge (x=11, y=6, z=5)
+            let flow_at_edge = get_block_at(&l, 11, 6, 5).unwrap();
+            assert_eq!(flow_at_edge.ty(), block::Type::Water);
+            assert_eq!(flow_at_edge.level(), 4);
+
+            // Should NOT spread to x=12 in mid-air
+            let past_edge = get_block_at(&l, 12, 6, 5).unwrap();
+            assert_eq!(past_edge.ty(), block::Type::Inactive);
+        }
+    }
+
+    #[test]
+    fn test_water_flow_into_hole() {
+        let loaded = Arc::new(Mutex::new(HashMap::new()));
+        let water_queue = Arc::new(Mutex::new(HashSet::new()));
+
+        // Create a 16x16x16 chunk at origin
+        let mut blocks = [[[Block::new(); 16]; 16]; 16];
+        
+        // Create a platform of solid blocks at Y=5 (Z=5 in internal array)
+        // Platform exists for x in 5..=8. So x=9 is air/hole initially.
+        for x in 5..=8 {
+            blocks[x][5][5].set_type(block::Type::Rock);
+        }
+
+        let chunk = Chunk::new(Vec3::new(0.0, 0.0, 0.0), blocks);
+        let key = UVec2::new(0, 0);
+        loaded.lock().unwrap().insert(key, vec![chunk]);
+
+        // Place a water source block at (7, 6, 5) with level 2 (source)
+        // Its floor is solid.
+        {
+            let mut l = loaded.lock().unwrap();
+            let col = l.get_mut(&key).unwrap();
+            col[0].blocks[7][5][6].set_type(block::Type::Water);
+            col[0].blocks[7][5][6].set_level(2);
+            col[0].blocks[7][5][6].set_source(true);
+        }
+
+        // Queue the water source and its neighbors
+        {
+            let mut q = water_queue.lock().unwrap();
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        q.insert(IVec3::new(7 + dx, 6 + dy, 5 + dz));
+                    }
+                }
+            }
+        }
+
+        // Tick 5 times to let it spread to (8, 6, 5), flow into (9, 6, 5), and fall to (9, 5, 5)
+        for _ in 0..5 {
+            let mut jobs = std::mem::take(&mut *water_queue.lock().unwrap());
+            tick_water_simulation("test_water", &loaded, &water_queue, &mut jobs);
+        }
+
+        // Verify that the water has flowed into the hole (9, 6, 5) and fallen down to (9, 5, 5)
+        {
+            let l = loaded.lock().unwrap();
+            let flow_on_ground = get_block_at(&l, 8, 6, 5).unwrap();
+            assert_eq!(flow_on_ground.ty(), block::Type::Water);
+            assert_eq!(flow_on_ground.level(), 1);
+
+            let flow_in_hole = get_block_at(&l, 9, 6, 5).unwrap();
+            assert_eq!(flow_in_hole.ty(), block::Type::Water);
+            assert_eq!(flow_in_hole.level(), 1);
+
+            let falling_flow = get_block_at(&l, 9, 5, 5).unwrap();
+            assert_eq!(falling_flow.ty(), block::Type::Water);
+            assert_eq!(falling_flow.level(), 8);
         }
     }
 }

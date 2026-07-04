@@ -20,6 +20,10 @@ fn default_sim_rate_ms() -> u64 {
     200
 }
 
+fn default_max_remesh_per_frame() -> usize {
+    4
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub chunk_load_radius: u32,
@@ -28,6 +32,8 @@ pub struct Config {
     pub active_world: String,
     #[serde(default = "default_sim_rate_ms")]
     pub sim_rate_ms: u64,
+    #[serde(default = "default_max_remesh_per_frame")]
+    pub max_remesh_per_frame: usize,
     #[serde(default)]
     pub worlds: HashMap<String, WorldConfig>,
 }
@@ -49,6 +55,7 @@ impl Default for Config {
             fov: 75.0,
             active_world: "funky_town".to_string(),
             sim_rate_ms: default_sim_rate_ms(),
+            max_remesh_per_frame: default_max_remesh_per_frame(),
             worlds,
         }
     }
