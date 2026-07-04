@@ -629,7 +629,7 @@ fn tick_water_simulation(
             } else {
                 // Check block below target
                 let block_below_target = get_block_at(&loaded, x, y - 1, z);
-                
+
                 let (is_below_target_water, is_below_target_air) = match block_below_target {
                     Some(b) => match b.ty() {
                         block::Type::Water => {
@@ -958,7 +958,7 @@ mod tests {
 
         // Create a 16x16x16 chunk at origin
         let mut blocks = [[[Block::new(); 16]; 16]; 16];
-        
+
         // Create a platform of solid blocks at Y=5 (Z=5 in internal array)
         // Platform exists for x in 5..=8. So x=9 is air/hole initially.
         for x in 5..=8 {
