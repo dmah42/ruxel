@@ -2,6 +2,10 @@ struct CameraUniform {
     view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     view_pos: vec4<f32>,
+    water_level: f32,
+    fog_start_sq: f32,
+    fog_end_sq: f32,
+    is_underwater: f32,
 };
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
@@ -100,6 +104,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let night_color = base_night_color + vec3<f32>(0.05, 0.06, 0.08) * moon_glow;
         
         color = mix(color, night_color, is_night);
+    }
+
+    // Apply underwater fog to the sky background
+    if (camera.is_underwater > 0.5) {
+        let depth = max(0.0, camera.water_level - camera.view_pos.y);
+        let water_absorption = exp(-depth * vec3<f32>(0.25, 0.07, 0.015));
+        let base_fog_color = vec3<f32>(0.05, 0.4, 0.95);
+        color = color * base_fog_color * water_absorption;
     }
 
     return vec4<f32>(color, 1.0);

@@ -18,8 +18,6 @@ it's written in rust.
    navigate the voxel terrain and interact with the world.
 1. **More Block Types**: Expand the block palette with new materials and
    properties to allow for richer building and terrain variation.
-1. **Better underwater fog**: Model the colour shift that happens as a player
-   gets deeper into water.
 1. **Player Object Rendering**: Render a 3D model/mesh for the player character
    instead of just relying on the camera's perspective, allowing third-person
    views and visible avatars.

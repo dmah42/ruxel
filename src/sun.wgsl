@@ -3,6 +3,9 @@ struct CameraUniform {
   inv_view_proj: mat4x4<f32>,
   view_pos: vec4<f32>,
   water_level: f32,
+  fog_start_sq: f32,
+  fog_end_sq: f32,
+  is_underwater: f32,
 }
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 
@@ -45,5 +48,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   if (in.world_position.y < camera.water_level) {
     discard;
   }
-  return in.color;
+  var color = in.color;
+  if (camera.is_underwater > 0.5) {
+    let depth = max(0.0, camera.water_level - camera.view_pos.y);
+    let water_absorption = exp(-depth * vec3<f32>(0.25, 0.07, 0.015));
+    let depth_fade = exp(-depth * 0.15);
+    color = vec4<f32>(color.xyz * water_absorption * depth_fade, color.w);
+  }
+  return color;
 }

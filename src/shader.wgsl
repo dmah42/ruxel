@@ -250,19 +250,41 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let d = camera.view_pos.xyz - in.world_position;
   let dist_sq = dot(d, d);
   let distance_fog_factor = smoothstep(camera.fog_start_sq, camera.fog_end_sq, dist_sq);
-  if (distance_fog_factor > 0.0 || camera.is_underwater > 0.5) {
-    let view_dir_to_fragment = normalize(-d);
-    let fog_sky_color = get_sky_color(view_dir_to_fragment);
-    if (distance_fog_factor > 0.0) {
-        result = mix(result, fog_sky_color, distance_fog_factor);
-    }
-
-    // Underwater fog
-    if (camera.is_underwater > 0.5) {
-        let fog_color = fog_sky_color * vec3<f32>(0.2, 0.5, 1.0);
-        let fog_factor = 1.0 - exp(-sqrt(dist_sq) * 0.05);
-        result = mix(result, fog_color, fog_factor);
-    }
+  
+  if (camera.is_underwater > 0.5) {
+      let dist = sqrt(dist_sq);
+      let depth = max(0.0, camera.water_level - camera.view_pos.y);
+      
+      // Calculate depth-based light absorption for water (Red, Green, Blue)
+      let water_absorption = exp(-depth * vec3<f32>(0.25, 0.07, 0.015));
+      
+      // Base fog color shifts from bright teal/blue near surface to deep dark indigo at depth
+      let base_fog_color = vec3<f32>(0.05, 0.4, 0.95);
+      
+      // Get the current sky color (changes dynamically with sun position/time of day)
+      let view_dir_to_fragment = normalize(-d);
+      let fog_sky_color = get_sky_color(view_dir_to_fragment);
+      
+      // Apply the wavelength absorption to the fog color
+      let fog_color = fog_sky_color * base_fog_color * water_absorption;
+      
+      // Fog density increases with depth, reducing visibility range
+      let fog_density = mix(0.04, 0.12, clamp(depth / 32.0, 0.0, 1.0));
+      let fog_factor = 1.0 - exp(-dist * fog_density);
+      
+      // Attenuate the terrain color itself (result) by light absorption and path absorption through water
+      let path_absorption = exp(-dist * vec3<f32>(0.15, 0.04, 0.01));
+      result = result * water_absorption * path_absorption;
+      
+      // Mix the attenuated terrain color with the fog color
+      result = mix(result, fog_color, fog_factor);
+  } else {
+      // Normal above-water distance fog
+      if (distance_fog_factor > 0.0) {
+          let view_dir_to_fragment = normalize(-d);
+          let fog_sky_color = get_sky_color(view_dir_to_fragment);
+          result = mix(result, fog_sky_color, distance_fog_factor);
+      }
   }
 
   return vec4<f32>(result, in.color.w);
