@@ -13,6 +13,7 @@ pub struct Ui {
     pub(crate) biome: String,
     pub(crate) is_console_open: bool,
     pub(crate) console_text: String,
+    pub(crate) profile_str: String,
     fps: u32,
     total_time: Duration,
 }
@@ -47,6 +48,7 @@ impl Ui {
             biome: String::from(""),
             is_console_open: false,
             console_text: String::from(""),
+            profile_str: String::from(""),
         }
     }
 
@@ -66,6 +68,20 @@ impl Ui {
             self.fps_str = format!("FPS: {}", self.fps);
             self.fps = 0;
             self.total_time = Duration::new(0, 0);
+        }
+
+        let build_profile = env!("BUILD_PROFILE");
+        let profile_display = match build_profile {
+            "debug" => "debug",
+            "release" => "release",
+            "release-opt" => "",
+            other => other,
+        };
+
+        if profile_display.is_empty() {
+            self.profile_str.clear();
+        } else {
+            self.profile_str = format!("profile: {}", profile_display);
         }
 
         self.is_console_open = ctx.console.is_open();

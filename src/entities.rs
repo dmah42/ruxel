@@ -28,7 +28,7 @@ fn generate_entities_for_chunk(
     let points = poisson.generate_for_chunk(chunk_x, chunk_z, &|p| terrain.get(p));
 
     for pt in points {
-        let tdata = terrain.get([pt.x as f64, pt.y as f64]);
+        let tdata = terrain.get(pt);
 
         if tdata.height > WATER_LEVEL {
             let temp = tdata.temperature;
@@ -36,7 +36,7 @@ fn generate_entities_for_chunk(
             let height = tdata.height;
 
             // Altitude jitter adds organic variation to the treeline
-            let altitude_jitter = ((pt.x * 12.9898 + pt.y * 78.233).sin() * 10.0) as f64;
+            let altitude_jitter = (pt.x * 12.9898 + pt.y * 78.233).sin() * 10.0;
 
             let suitable_trees = trees::get_suitable_trees(temp, moist, height, altitude_jitter);
 
@@ -54,7 +54,7 @@ fn generate_entities_for_chunk(
             };
 
             if let Some(tree_type) = tree_type {
-                let position = Vec3::new(pt.x, tdata.height as f32, pt.y);
+                let position = Vec3::new(pt.x, tdata.height, pt.y);
                 entities.push((position, tree_type));
             }
         }
@@ -250,13 +250,13 @@ mod tests {
             .enumerate()
             .for_each(|(z, row)| {
                 for x in 0..(width as usize) {
-                    let tdata = terrain.get([x as f64, z as f64]);
-                    if tdata.height <= crate::terrain::WATER_LEVEL {
-                        let depth = (crate::terrain::WATER_LEVEL - tdata.height).clamp(0.0, 30.0);
+                    let tdata = terrain.get(glam::Vec2::new(x as f32, z as f32));
+                    if tdata.height <= WATER_LEVEL {
+                        let depth = (WATER_LEVEL - tdata.height).clamp(0.0, 30.0);
                         let b = 255 - (depth as u8 * 4);
                         row[x] = image::Rgb([0, 0, b]);
                     } else {
-                        let intensity = ((tdata.height - crate::terrain::WATER_LEVEL) / 80.0
+                        let intensity = ((tdata.height - WATER_LEVEL) / 80.0
                             * 255.0)
                             .clamp(0.0, 255.0) as u8;
                         row[x] = image::Rgb([

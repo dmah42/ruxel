@@ -744,11 +744,8 @@ impl RenderState<'static> {
             );
         }
 
-        let is_underwater = scene.chunks().block_material_at(
-            camera.visual_position().x.floor() as i32,
-            camera.visual_position().y.floor() as i32,
-            camera.visual_position().z.floor() as i32,
-        ) == Type::Water as u32;
+        let cam_block = camera.visual_position().floor().as_ivec3();
+        let is_underwater = scene.chunks().block_material_at(cam_block) == Type::Water as u32;
         self.camera_uniform.update_view_proj(camera, is_underwater);
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -1258,6 +1255,13 @@ impl RenderState<'static> {
                             .with_layout(layout)
                             .with_bounds((self.size.width as f32 - 40.0, console_bottom - 150.0))
                     },
+                    Section::default()
+                        .add_text(
+                            Text::new(&ui.profile_str)
+                                .with_scale(scale)
+                                .with_color([0.8, 0.8, 0.8, 1.0]),
+                        )
+                        .with_screen_position((20.0, 125.0)),
                 ]);
             }
 

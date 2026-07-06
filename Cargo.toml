@@ -2,6 +2,7 @@
 name = "ruxel"
 version = "0.2.2"
 edition = "2021"
+build = "build.rs"
 
 [lib]
 name = "ruxel_lib"
@@ -42,9 +43,17 @@ web-sys = { version = "0.3", features = [
 image = "0.24"
 rayon = "1.12.0"
 
-[profile.release]
+[features]
+default = []
+slow-tests = []
+
+[profile.release-opt]
+inherits = "release"
 opt-level = 'z'     # Optimize for size
 lto = true          # Enable Link-Time Optimization
 codegen-units = 1   # Reduce parallel code generation (better optimization)
 panic = 'abort'     # Remove panic unwinding overhead
 strip = true        # Automatically strip symbols from the binary
+
+[profile.dev.package."*"]
+opt-level = 3

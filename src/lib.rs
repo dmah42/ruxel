@@ -186,12 +186,10 @@ impl Ruxel {
         if let Some((hit_pos, normal)) = self.camera.raycast(self.scene.chunks(), REACH_DISTANCE) {
             if place {
                 let p = hit_pos + normal;
-                self.scene.chunks().set_block(p.x, p.y, p.z, block_type);
+                self.scene.chunks().set_block(p, block_type);
             } else {
                 self.scene.chunks().set_block(
-                    hit_pos.x,
-                    hit_pos.y,
-                    hit_pos.z,
+                    hit_pos,
                     crate::block::Type::Inactive,
                 );
             }
@@ -319,8 +317,7 @@ impl Ruxel {
             .map(|(pos, _)| pos);
 
         let player_pos = self.camera.position();
-        let point = [player_pos.x as f64 / 384.0, player_pos.z as f64 / 384.0];
-        let blend_str = self.scene.chunks().terrain().biome_blend_string(point);
+        let blend_str = self.scene.chunks().terrain().biome_blend_string(glam::Vec2::new(player_pos.x, player_pos.z));
 
         self.ui.update(ui::UiContext {
             player_position: &player_pos,

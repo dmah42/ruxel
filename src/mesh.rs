@@ -35,17 +35,17 @@ impl ChunkMesh {
         let start = chunk.start();
 
         let is_opaque = |wx: i32, wy: i32, wz: i32| -> bool {
-            let cx = (wx - start.x as i32) as usize;
-            let cy = (wy - start.y as i32) as usize;
-            let cz = (wz - start.z as i32) as usize;
+            let cx = wx - start.x as i32;
+            let cy = wy - start.y as i32;
+            let cz = wz - start.z as i32;
 
             if (0..16).contains(&cx) && (0..16).contains(&cy) && (0..16).contains(&cz) {
-                let n = &blocks[cx][cz][cy];
+                let n = &blocks[cx as usize][cz as usize][cy as usize];
                 n.is_active() && n.color().a == 1.0
             } else {
-                let chunk_x = (wx as f32 / 16.0).floor() as i32;
-                let chunk_z = (wz as f32 / 16.0).floor() as i32;
-                let cy_index = (wy as f32 / 16.0).floor() as usize;
+                let chunk_x = wx.div_euclid(16);
+                let chunk_z = wz.div_euclid(16);
+                let cy_index = wy.div_euclid(16);
 
                 if chunk_x >= 0 && chunk_z >= 0 && (0..16).contains(&cy_index) {
                     let neighbor_key = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
@@ -53,29 +53,29 @@ impl ChunkMesh {
                         let lx = wx.rem_euclid(16) as usize;
                         let ly = wy.rem_euclid(16) as usize;
                         let lz = wz.rem_euclid(16) as usize;
-                        let n = &col[cy_index].blocks()[lx][lz][ly];
+                        let n = &col[cy_index as usize].blocks()[lx][lz][ly];
                         return n.is_active() && n.color().a == 1.0;
                     }
                 }
 
-                let point: [f64; 2] = [wx as f64, wz as f64];
+                let point = glam::Vec2::new(wx as f32, wz as f32);
                 let height = terrain.get(point).height as i32;
                 wy < height
             }
         };
 
         let is_transparent_block = |wx: i32, wy: i32, wz: i32| -> bool {
-            let cx = (wx - start.x as i32) as usize;
-            let cy = (wy - start.y as i32) as usize;
-            let cz = (wz - start.z as i32) as usize;
+            let cx = wx - start.x as i32;
+            let cy = wy - start.y as i32;
+            let cz = wz - start.z as i32;
 
             if (0..16).contains(&cx) && (0..16).contains(&cy) && (0..16).contains(&cz) {
-                let n = &blocks[cx][cz][cy];
+                let n = &blocks[cx as usize][cz as usize][cy as usize];
                 n.is_active() && n.color().a < 1.0
             } else {
-                let chunk_x = (wx as f32 / 16.0).floor() as i32;
-                let chunk_z = (wz as f32 / 16.0).floor() as i32;
-                let cy_index = (wy as f32 / 16.0).floor() as usize;
+                let chunk_x = wx.div_euclid(16);
+                let chunk_z = wz.div_euclid(16);
+                let cy_index = wy.div_euclid(16);
 
                 if chunk_x >= 0 && chunk_z >= 0 && (0..16).contains(&cy_index) {
                     let neighbor_key = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
@@ -83,12 +83,12 @@ impl ChunkMesh {
                         let lx = wx.rem_euclid(16) as usize;
                         let ly = wy.rem_euclid(16) as usize;
                         let lz = wz.rem_euclid(16) as usize;
-                        let n = &col[cy_index].blocks()[lx][lz][ly];
+                        let n = &col[cy_index as usize].blocks()[lx][lz][ly];
                         return n.is_active() && n.color().a < 1.0;
                     }
                 }
 
-                let point: [f64; 2] = [wx as f64, wz as f64];
+                let point = glam::Vec2::new(wx as f32, wz as f32);
                 let height = terrain.get(point).height as i32;
                 wy < 32 && wy >= height
             }

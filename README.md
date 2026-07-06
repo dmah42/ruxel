@@ -8,7 +8,7 @@ it's written in rust.
 ## Future improvements
 
 1. **Dynamic World Simulation**: Implement block-update mechanics where the
-   world evolves over time (e.g., trees grow, ice melts, water flows). CLOUDS!
+   world evolves over time (e.g., trees grow, ice melts). CLOUDS!
 1. **Inventory system**: A player should be able to collect stuff by destroying
    blocks.
 1. **Interactions with entities**: Clicking on a tree should destroy the tree
@@ -33,6 +33,25 @@ it's written in rust.
    generated terrain (e.g. rain shadows, altitude cooling). T+M also create
    weather.
 
-## Tech Debt
+## API Boundary Type Policies
 
-- figure out types everywhere. we have a mix of f64, f32, and u32/i32.
+To keep type casting to a minimum, we stick to the following coordinate and API
+type policies:
+
+1. **Continuous World Space**: Use `glam::Vec3` (`f32`) for all continuous
+   coordinates (player position, velocity, camera direction, light directions).
+2. **Discrete Block Space**: Use `glam::IVec3` (`i32`) for all discrete grid
+   positions (block locations, raycasting hit/normal vectors). This avoids
+   underflow bugs when using offsets (e.g., neighbor offset calculations).
+3. **Chunk Column Coordinates**: Use `glam::UVec2` (`u32`) for indexing chunk
+   columns in the grid.
+4. **Voxel Grid Division**: Use `x.div_euclid(16)` to calculate chunk indices,
+   and `x.rem_euclid(16) as usize` for relative local coordinates inside a chunk
+   column. Range validation checks on signed values are performed *before*
+   casting to unsigned to prevent underflow.
+5. **Terrain boundaries**: Encapsulate `f64` noise calculation entirely inside
+   `WorldTerrain`. All public functions accept `glam::Vec2` (`f32`) world
+   coordinates, and `TerrainData` stores its fields (`height`, `moisture`,
+   `temperature`) as `f32`.
+
+## Tech Debt

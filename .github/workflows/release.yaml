@@ -37,25 +37,24 @@ jobs:
         run: cargo install cargo-wgsl --locked
 
       - name: Build release binary
-        run: make build_release
+        run: make build_release_opt
 
       - name: Create test outputs directory
         run: mkdir -p test_outputs
         shell: bash
 
       - name: Run tests
-        run: make test_release
-
+        run: make test_release_opt_all
 
       - name: Package Windows
         if: matrix.os == 'windows-latest'
         run: |
-          compress-archive -path target/release/ruxel.exe -destinationpath ruxel-windows.zip
+          compress-archive -path target/release-opt/ruxel.exe -destinationpath ruxel-windows.zip
 
       - name: Package macOS
         if: matrix.os == 'macos-latest'
         run: |
-          cd target/release
+          cd target/release-opt
           zip -r ../../ruxel-macos.zip ruxel
 
       - name: Upload Binary to Release

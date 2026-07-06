@@ -34,18 +34,13 @@ pub(crate) fn execute_find_biome(scene: &mut Scene, camera: &Camera, biome_name:
     let start_pos = camera.position();
 
     if biome_name == "cave" {
-        match terrain.find_closest_cave(start_pos.x as f64, start_pos.z as f64) {
+        let start_pos_2d = glam::Vec2::new(start_pos.x, start_pos.z);
+        match terrain.find_closest_cave(start_pos_2d) {
             Some(point) => {
-                let px = point[0];
-                let py = point[1];
-                let pz = point[2];
-                let dist = ((px - start_pos.x as f64).powi(2)
-                    + (py - start_pos.y as f64).powi(2)
-                    + (pz - start_pos.z as f64).powi(2))
-                    .sqrt();
+                let dist = start_pos.distance(point);
                 return format!(
                     "Found cave at {:.0} {:.0} {:.0} ({:.0} blocks away)",
-                    px, py, pz, dist
+                    point.x, point.y, point.z, dist
                 );
             }
             None => return "Cave not found within search radius.".to_string(),
@@ -57,18 +52,16 @@ pub(crate) fn execute_find_biome(scene: &mut Scene, camera: &Camera, biome_name:
         None => return format!("Unknown biome: '{}'", biome_name),
     };
 
-    match terrain.find_closest_pure_biome(start_pos.x as f64, start_pos.z as f64, target_biome) {
+    let start_pos_2d = glam::Vec2::new(start_pos.x, start_pos.z);
+    match terrain.find_closest_pure_biome(start_pos_2d, target_biome) {
         Some(point) => {
-            let px = point[0];
-            let pz = point[1];
             let height = scene
                 .chunks()
-                .height_at(&glam::Vec3::new(px as f32, 0.0, pz as f32));
-            let dist =
-                ((px - start_pos.x as f64).powi(2) + (pz - start_pos.z as f64).powi(2)).sqrt();
+                .height_at(&glam::Vec3::new(point.x, 0.0, point.y));
+            let dist = start_pos_2d.distance(point);
             format!(
                 "Found 100% {} at {:.0} {:.0} {:.0} ({:.0} blocks away)",
-                biome_name, px, height, pz, dist
+                biome_name, point.x, height, point.y, dist
             )
         }
         None => format!("Biome '{}' not found within search radius.", biome_name),

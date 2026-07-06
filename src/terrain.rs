@@ -10,20 +10,15 @@ fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
     t * t * (3.0 - 2.0 * t)
 }
 
-pub const WATER_LEVEL: f64 = 32.0;
+pub const WATER_LEVEL: f32 = 32.0;
 pub const BEDROCK_LEVEL: f64 = 2.0;
-
-// Specific plant altitudes
-pub const BUSH_MAX_HEIGHT: f64 = 50.0;
-pub const PINE_ALTITUDE: f64 = 130.0;
-pub const TREELINE_ALTITUDE: f64 = 200.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TerrainData {
-    pub height: f64,
+    pub height: f32,
     pub biome: Biome,
-    pub moisture: f64,
-    pub temperature: f64,
+    pub moisture: f32,
+    pub temperature: f32,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -161,8 +156,11 @@ impl WorldTerrain {
         (primary_biome, weights)
     }
 
-    pub fn is_cave(&self, point: [f64; 3], surface_height: f64) -> bool {
-        self.caves.is_cave(point, surface_height)
+    pub fn is_cave(&self, point: glam::Vec3, surface_height: f32) -> bool {
+        self.caves.is_cave(
+            [point.x as f64, point.y as f64, point.z as f64],
+            surface_height as f64,
+        )
     }
 
     fn get_shore_t(&self, point: [f64; 2]) -> f64 {
@@ -183,10 +181,10 @@ impl WorldTerrain {
 
     pub const WORLD_SCALE: f64 = 384.0;
 
-    pub fn get(&self, world_point: [f64; 2]) -> TerrainData {
+    pub fn get(&self, world_point: glam::Vec2) -> TerrainData {
         let point = [
-            world_point[0] / Self::WORLD_SCALE,
-            world_point[1] / Self::WORLD_SCALE,
+            world_point.x as f64 / Self::WORLD_SCALE,
+            world_point.y as f64 / Self::WORLD_SCALE,
         ];
         let shore_t = self.get_shore_t(point);
 
@@ -232,15 +230,17 @@ impl WorldTerrain {
 
         let true_bound = fbm_bound(4, 0.5) * std::f64::consts::SQRT_2 / 2.0;
         TerrainData {
-            height: final_height,
+            height: final_height as f32,
             biome: primary_biome,
-            moisture: (self.moisture_noise.get(point) + true_bound) / (2.0 * true_bound),
-            temperature: (self.temperature_noise.get(point) + true_bound) / (2.0 * true_bound),
+            moisture: ((self.moisture_noise.get(point) + true_bound) / (2.0 * true_bound)) as f32,
+            temperature: ((self.temperature_noise.get(point) + true_bound) / (2.0 * true_bound))
+                as f32,
         }
     }
 
-    pub fn is_pure_biome(&self, point: [f64; 2], target: Biome) -> bool {
-        let shore_t = self.get_shore_t(point);
+    pub fn is_pure_biome(&self, point: glam::Vec2, target: Biome) -> bool {
+        let p = [point.x as f64, point.y as f64];
+        let shore_t = self.get_shore_t(p);
         if target == Biome::Ocean {
             return shore_t == 0.0;
         }
@@ -248,7 +248,7 @@ impl WorldTerrain {
             return false; // Mixed with ocean
         }
 
-        let (primary, weights) = self.get_land_blend(point);
+        let (primary, weights) = self.get_land_blend(p);
         if primary != target {
             return false;
         }
@@ -266,13 +266,15 @@ impl WorldTerrain {
 
     pub fn find_closest_pure_biome(
         &self,
-        start_x: f64,
-        start_z: f64,
+        start_pos: glam::Vec2,
         target: Biome,
-    ) -> Option<[f64; 2]> {
-        let step_size = 32.0 / 384.0;
+    ) -> Option<glam::Vec2> {
+        let step_size = 32.0 / Self::WORLD_SCALE;
         let max_steps = 400 * 400;
-        let start_point = [start_x / 384.0, start_z / 384.0];
+        let start_point = glam::Vec2::new(
+            start_pos.x / Self::WORLD_SCALE as f32,
+            start_pos.y / Self::WORLD_SCALE as f32,
+        );
 
         let mut x = 0;
         let mut z = 0;
@@ -280,13 +282,16 @@ impl WorldTerrain {
         let mut dz = -1;
 
         for _ in 0..max_steps {
-            let px = start_point[0] + (x as f64 * step_size);
-            let pz = start_point[1] + (z as f64 * step_size);
+            let px = start_point.x + (x as f32 * step_size as f32);
+            let pz = start_point.y + (z as f32 * step_size as f32);
 
             if px >= 0.0 && pz >= 0.0 {
-                let point = [px, pz];
+                let point = glam::Vec2::new(px, pz);
                 if self.is_pure_biome(point, target) {
-                    return Some([px * 384.0, pz * 384.0]);
+                    return Some(glam::Vec2::new(
+                        px * Self::WORLD_SCALE as f32,
+                        pz * Self::WORLD_SCALE as f32,
+                    ));
                 }
             }
 
@@ -302,12 +307,8 @@ impl WorldTerrain {
         None
     }
 
-    pub fn find_closest_cave(
-        &self,
-        start_x: f64,
-        start_z: f64,
-    ) -> Option<[f64; 3]> {
-        let step_size = 4.0;
+    pub fn find_closest_cave(&self, start_pos: glam::Vec2) -> Option<glam::Vec3> {
+        let step_size = 4.0f32;
         let max_steps = 150 * 150; // Search up to ~600 blocks radius
 
         let mut x = 0;
@@ -316,19 +317,20 @@ impl WorldTerrain {
         let mut dz = -1;
 
         for _ in 0..max_steps {
-            let px = start_x + (x as f64 * step_size);
-            let pz = start_z + (z as f64 * step_size);
+            let px = start_pos.x + (x as f32 * step_size);
+            let pz = start_pos.y + (z as f32 * step_size);
 
             if px >= 0.0 && pz >= 0.0 {
-                let tdata = self.get([px, pz]);
+                let tdata = self.get(glam::Vec2::new(px, pz));
                 let surface_height = tdata.height;
-                let min_y = BEDROCK_LEVEL + 1.0;
+                let min_y = BEDROCK_LEVEL as f32 + 1.0;
                 let max_y = surface_height - 10.0;
                 if max_y > min_y {
                     let mut y = min_y;
                     while y <= max_y {
-                        if self.is_cave([px, y, pz], surface_height) {
-                            return Some([px, y, pz]);
+                        let point = glam::Vec3::new(px, y, pz);
+                        if self.is_cave(point, surface_height) {
+                            return Some(point);
                         }
                         y += 4.0;
                     }
@@ -347,7 +349,11 @@ impl WorldTerrain {
         None
     }
 
-    pub fn biome_blend_string(&self, point: [f64; 2]) -> String {
+    pub fn biome_blend_string(&self, world_point: glam::Vec2) -> String {
+        let point = [
+            world_point.x as f64 / Self::WORLD_SCALE,
+            world_point.y as f64 / Self::WORLD_SCALE,
+        ];
         let shore_t = self.get_shore_t(point);
 
         if shore_t == 0.0 {
@@ -644,7 +650,7 @@ impl DesertTerrain {
         // Sand ripple
         let ripple = (base_raw * 0.1).abs();
 
-        let height = (WATER_LEVEL - 1.0) + base_norm * 8.0 + max_dune_height * 22.0 + ripple;
+        let height = (WATER_LEVEL as f64 - 1.0) + base_norm * 8.0 + max_dune_height * 22.0 + ripple;
 
         // Carve rare oasis depressions
         //if oasis_norm > 0.90 {
@@ -743,6 +749,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn test_biome_coverage() {
         let terrain = WorldTerrain::new(12345);
         let mut pure_blocks = 0;
@@ -874,6 +881,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn test_temperature_map() {
         let terrain = WorldTerrain::new(12345);
         let grid_size = 2 * TEST_GRID_SIZE;
@@ -881,7 +889,7 @@ mod tests {
 
         for x in 0..grid_size {
             for z in 0..grid_size {
-                let world_point = [x as f64, z as f64];
+                let world_point = glam::Vec2::new(x as f32, z as f32);
                 let tdata = terrain.get(world_point);
                 let t = tdata.temperature; // 0.0 to 1.0
 
@@ -897,6 +905,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn test_moisture_map() {
         let terrain = WorldTerrain::new(12345);
         let grid_size = 2 * TEST_GRID_SIZE;
@@ -904,13 +913,13 @@ mod tests {
 
         for x in 0..grid_size {
             for z in 0..grid_size {
-                let world_point = [x as f64, z as f64];
+                let world_point = glam::Vec2::new(x as f32, z as f32);
                 let tdata = terrain.get(world_point);
                 let m = tdata.moisture; // 0.0 to 1.0
 
-                let r = (139.0 * (1.0 - m) + 34.0 * m) as u8;
-                let g = (69.0 * (1.0 - m) + 139.0 * m) as u8;
-                let b = (19.0 * (1.0 - m) + 34.0 * m) as u8;
+                let r = (139.0f32 * (1.0f32 - m) + 34.0f32 * m) as u8;
+                let g = (69.0f32 * (1.0f32 - m) + 139.0f32 * m) as u8;
+                let b = (19.0f32 * (1.0f32 - m) + 34.0f32 * m) as u8;
 
                 img.put_pixel(x as u32, z as u32, image::Rgb([r, g, b]));
             }
@@ -929,8 +938,8 @@ mod tests {
                     x as f64 / WorldTerrain::WORLD_SCALE,
                     z as f64 / WorldTerrain::WORLD_SCALE,
                 ]);
-                if h <= WATER_LEVEL {
-                    let b = 255 - ((WATER_LEVEL - h) as u8);
+                if h <= WATER_LEVEL as f64 {
+                    let b = 255 - ((WATER_LEVEL as f64 - h) as u8);
                     img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
                 } else {
                     let c = h as u8;
@@ -952,8 +961,8 @@ mod tests {
                     x as f64 / WorldTerrain::WORLD_SCALE,
                     z as f64 / WorldTerrain::WORLD_SCALE,
                 ]);
-                if h <= WATER_LEVEL {
-                    let b = 255 - ((WATER_LEVEL - h) as u8);
+                if h <= WATER_LEVEL as f64 {
+                    let b = 255 - ((WATER_LEVEL as f64 - h) as u8);
                     img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
                 } else {
                     let c = h as u8;
@@ -975,8 +984,8 @@ mod tests {
                     x as f64 / WorldTerrain::WORLD_SCALE,
                     z as f64 / WorldTerrain::WORLD_SCALE,
                 ]);
-                if h <= WATER_LEVEL {
-                    let b = 255 - ((WATER_LEVEL - h) as u8);
+                if h <= WATER_LEVEL as f64 {
+                    let b = 255 - ((WATER_LEVEL as f64 - h) as u8);
                     img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
                 } else {
                     let c = h as u8;
@@ -998,8 +1007,8 @@ mod tests {
                     (x as f64) / WorldTerrain::WORLD_SCALE,
                     (z as f64) / WorldTerrain::WORLD_SCALE,
                 ]);
-                if h <= WATER_LEVEL {
-                    let b = 255 - ((WATER_LEVEL - h) as u8);
+                if h <= WATER_LEVEL as f64 {
+                    let b = 255 - ((WATER_LEVEL as f64 - h) as u8);
                     img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, b]));
                 } else {
                     let c = h as u8;
@@ -1012,10 +1021,11 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "slow-tests")]
     fn test_cave_slices() {
         let terrain = WorldTerrain::new(12345);
         let grid_size = TEST_GRID_SIZE;
-        let slice_heights = [10.0, 20.0, 30.0];
+        let slice_heights = [10.0f32, 20.0f32, 30.0f32];
 
         let _ = std::fs::create_dir_all("test_outputs");
 
@@ -1023,13 +1033,13 @@ mod tests {
             let mut img = image::RgbImage::new(grid_size as u32, grid_size as u32);
             for x in 0..grid_size {
                 for z in 0..grid_size {
-                    let world_x = x as f64;
-                    let world_z = z as f64;
+                    let world_x = x as f32;
+                    let world_z = z as f32;
 
-                    let tdata = terrain.get([world_x, world_z]);
+                    let tdata = terrain.get(glam::Vec2::new(world_x, world_z));
                     let surface_height = tdata.height;
 
-                    if terrain.is_cave([world_x, y, world_z], surface_height) {
+                    if terrain.is_cave(glam::Vec3::new(world_x, y, world_z), surface_height) {
                         // Cave -> Black
                         img.put_pixel(x as u32, z as u32, image::Rgb([0, 0, 0]));
                     } else if y >= surface_height - 1.0 {
@@ -1049,12 +1059,12 @@ mod tests {
     #[test]
     fn test_find_closest_cave() {
         let terrain = WorldTerrain::new(12345);
-        let result = terrain.find_closest_cave(0.0, 0.0);
+        let result = terrain.find_closest_cave(glam::Vec2::new(0.0, 0.0));
         assert!(result.is_some(), "Should find a cave near the origin.");
         let point = result.unwrap();
-        let tdata = terrain.get([point[0], point[2]]);
+        let tdata = terrain.get(glam::Vec2::new(point.x, point.z));
         assert!(
-            terrain.is_cave([point[0], point[1], point[2]], tdata.height),
+            terrain.is_cave(point, tdata.height),
             "The returned coordinates should point to an actual cave!"
         );
     }

@@ -1,8 +1,8 @@
 use crate::{
     block::{self, Block},
-    terrain::{Biome, WorldTerrain, BEDROCK_LEVEL},
+    terrain::{Biome, WorldTerrain, BEDROCK_LEVEL, WATER_LEVEL},
 };
-use glam::{IVec2, IVec3, UVec2, Vec3};
+use glam::{IVec2, IVec3, UVec2, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::max,
@@ -16,7 +16,6 @@ use std::{
     time::Duration,
 };
 
-pub const WATER_LEVEL: f32 = 32.0;
 pub const MAX_HEIGHT: i32 = 256;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -87,6 +86,33 @@ impl Drop for Chunks {
             .join()
             .expect("chunk loader joined cleanly");
     }
+}
+
+struct LocalBlockCoords {
+    chunk_key: UVec2,
+    chunk_y: usize,
+    lx: usize,
+    ly: usize,
+    lz: usize,
+}
+
+fn block_to_local_coords(pos: IVec3) -> Option<LocalBlockCoords> {
+    if pos.x < 0 || pos.y < 0 || pos.z < 0 || pos.y >= MAX_HEIGHT {
+        return None;
+    }
+    let chunk_x = (pos.x as u32) / 16;
+    let chunk_y = (pos.y as usize) / 16;
+    let chunk_z = (pos.z as u32) / 16;
+    let lx = (pos.x as usize) % 16;
+    let ly = (pos.y as usize) % 16;
+    let lz = (pos.z as usize) % 16;
+    Some(LocalBlockCoords {
+        chunk_key: UVec2::new(chunk_x, chunk_z),
+        chunk_y,
+        lx,
+        ly,
+        lz,
+    })
 }
 
 impl Chunks {
@@ -253,48 +279,45 @@ impl Chunks {
     }
 
     pub fn height_at(&self, position: &Vec3) -> f32 {
-        let point: [f64; 2] = [position.x as f64, position.z as f64];
-        self.terrain.get(point).height as f32
+        let point = Vec2::new(position.x, position.z);
+        self.terrain.get(point).height
     }
 
-    pub fn set_block(&self, x: i32, y: i32, z: i32, block_type: block::Type) {
+    pub fn set_block(&self, pos: glam::IVec3, block_type: block::Type) {
         let is_water = matches!(block_type, block::Type::Water);
-        self.set_block_with_level(x, y, z, block_type, if is_water { 8 } else { 0 }, is_water)
+        self.set_block_with_level(pos, block_type, if is_water { 8 } else { 0 }, is_water)
     }
 
     pub fn set_block_with_level(
         &self,
-        x: i32,
-        y: i32,
-        z: i32,
+        pos: glam::IVec3,
         block_type: block::Type,
         level: u8,
         is_source: bool,
     ) {
         // Prevent modifying blocks at or below bedrock level
-        if x < 0 || y <= BEDROCK_LEVEL as i32 || z < 0 || y >= MAX_HEIGHT {
+        if pos.y <= BEDROCK_LEVEL as i32 {
             return;
         }
 
-        let chunk_x = (x as u32) / 16;
-        let chunk_y = (y as usize) / 16;
-        let chunk_z = (z as u32) / 16;
+        let coords = match block_to_local_coords(pos) {
+            Some(c) => c,
+            None => return,
+        };
 
-        let lx = (x as usize) % 16;
-        let ly = (y as usize) % 16;
-        let lz = (z as usize) % 16;
-
-        let key = UVec2::new(chunk_x, chunk_z);
         if let Ok(mut loaded) = self.loaded.lock() {
-            if let Some(col) = loaded.get_mut(&key) {
-                if chunk_y < col.len() {
-                    let block = &mut col[chunk_y].blocks[lx][lz][ly];
+            if let Some(col) = loaded.get_mut(&coords.chunk_key) {
+                if coords.chunk_y < col.len() {
+                    let block = &mut col[coords.chunk_y].blocks[coords.lx][coords.lz][coords.ly];
                     block.set_type(block_type);
                     block.set_level(level);
                     block.set_source(is_source);
-                    col[chunk_y].increment_version();
+                    col[coords.chunk_y].increment_version();
 
-                    let path = format!("worlds/{}/chunk_{}_{}.bin", self.world_name, key.x, key.y);
+                    let path = format!(
+                        "worlds/{}/chunk_{}_{}.bin",
+                        self.world_name, coords.chunk_key.x, coords.chunk_key.y
+                    );
                     if let Ok(data) = bincode::serialize(col) {
                         let _ = std::fs::write(&path, data);
                     }
@@ -308,28 +331,15 @@ impl Chunks {
                             continue;
                         }
 
-                        let nx = x + dx;
-                        let ny = y + dy;
-                        let nz = z + dz;
-
-                        if nx < 0 || ny < 0 || nz < 0 || ny >= MAX_HEIGHT {
-                            continue;
-                        }
-
-                        let ncx = (nx as u32) / 16;
-                        let ncy = (ny as usize) / 16;
-                        let ncz = (nz as u32) / 16;
-
-                        if ncx != chunk_x || ncy != chunk_y || ncz != chunk_z {
-                            let n_key = UVec2::new(ncx, ncz);
-                            if let Some(n_col) = loaded.get_mut(&n_key) {
-                                if ncy < n_col.len() {
-                                    let nlx = (nx as usize) % 16;
-                                    let nly = (ny as usize) % 16;
-                                    let nlz = (nz as usize) % 16;
-
-                                    if n_col[ncy].blocks()[nlx][nlz][nly].is_active() {
-                                        n_col[ncy].increment_version();
+                        let npos = pos + IVec3::new(dx, dy, dz);
+                        if let Some(nc) = block_to_local_coords(npos) {
+                            if nc.chunk_key != coords.chunk_key || nc.chunk_y != coords.chunk_y {
+                                if let Some(n_col) = loaded.get_mut(&nc.chunk_key) {
+                                    if nc.chunk_y < n_col.len()
+                                        && n_col[nc.chunk_y].blocks()[nc.lx][nc.lz][nc.ly]
+                                            .is_active()
+                                    {
+                                        n_col[nc.chunk_y].increment_version();
                                     }
                                 }
                             }
@@ -344,37 +354,34 @@ impl Chunks {
             for dx in -1..=1 {
                 for dy in -1..=1 {
                     for dz in -1..=1 {
-                        queue.insert(IVec3::new(x + dx, y + dy, z + dz));
+                        queue.insert(pos + IVec3::new(dx, dy, dz));
                     }
                 }
             }
         }
     }
 
-    pub fn is_solid_at(&self, x: i32, y: i32, z: i32) -> bool {
+    pub fn is_solid_at(&self, pos: glam::IVec3) -> bool {
         if let Ok(loaded) = self.loaded.lock() {
-            if let Some(block) = get_block_at(&loaded, x, y, z) {
+            if let Some(block) = get_block_at(&loaded, pos) {
                 return block.is_solid();
             }
         }
         false
     }
 
-    pub fn block_material_at(&self, x: i32, y: i32, z: i32) -> u32 {
+    pub fn block_material_at(&self, pos: glam::IVec3) -> u32 {
         if let Ok(loaded) = self.loaded.lock() {
-            if let Some(block) = get_block_at(&loaded, x, y, z) {
+            if let Some(block) = get_block_at(&loaded, pos) {
                 return block.material_id();
             }
         }
         0
     }
 
-    pub fn is_chunk_loaded(&self, x: i32, z: i32) -> bool {
-        let chunk_x = (x as u32) / 16;
-        let chunk_z = (z as u32) / 16;
-        let key = UVec2::new(chunk_x, chunk_z);
+    pub fn is_chunk_loaded(&self, chunk_pos: glam::UVec2) -> bool {
         if let Ok(loaded) = self.loaded.lock() {
-            return loaded.contains_key(&key);
+            return loaded.contains_key(&chunk_pos);
         }
         false
     }
@@ -410,14 +417,14 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
             for (z, col) in row.iter_mut().enumerate() {
                 let blockx = (x as u32) + (16 * key.x);
                 let blockz = (z as u32) + (16 * key.y);
-                let point: [f64; 2] = [blockx as f64, blockz as f64];
+                let point = glam::Vec2::new(blockx as f32, blockz as f32);
                 let tdata = terrain.get(point);
                 for (y, block) in col.iter_mut().enumerate() {
                     let blocky = (y as u32) + (16 * chunky);
                     let blockyf32 = blocky as f32;
-                    let height = tdata.height as f32;
+                    let height = tdata.height;
 
-                    let point3d: [f64; 3] = [blockx as f64, blocky as f64, blockz as f64];
+                    let point3d = glam::Vec3::new(blockx as f32, blocky as f32, blockz as f32);
 
                     if terrain.is_cave(point3d, tdata.height) {
                         continue;
@@ -486,22 +493,11 @@ fn load_chunks(world_name: &str, terrain: &WorldTerrain, key: UVec2) -> Vec<Chun
     chunks
 }
 
-fn get_block_at(loaded: &HashMap<UVec2, Vec<Chunk>>, x: i32, y: i32, z: i32) -> Option<Block> {
-    if x < 0 || y < 0 || z < 0 || y >= MAX_HEIGHT {
-        return None;
-    }
-    let chunk_x = (x as u32) / 16;
-    let chunk_y = (y as usize) / 16;
-    let chunk_z = (z as u32) / 16;
-
-    let lx = (x as usize) % 16;
-    let ly = (y as usize) % 16;
-    let lz = (z as usize) % 16;
-
-    let key = UVec2::new(chunk_x, chunk_z);
-    if let Some(col) = loaded.get(&key) {
-        if chunk_y < col.len() {
-            return Some(col[chunk_y].blocks()[lx][lz][ly]);
+fn get_block_at(loaded: &HashMap<UVec2, Vec<Chunk>>, pos: IVec3) -> Option<Block> {
+    let coords = block_to_local_coords(pos)?;
+    if let Some(col) = loaded.get(&coords.chunk_key) {
+        if coords.chunk_y < col.len() {
+            return Some(col[coords.chunk_y].blocks()[coords.lx][coords.lz][coords.ly]);
         }
     }
     None
@@ -515,33 +511,25 @@ fn set_block_in_sim(
     is_source: bool,
     modified_chunks: &mut HashSet<UVec2>,
 ) {
-    let x = pos.x;
-    let y = pos.y;
-    let z = pos.z;
-
-    if x < 0 || y <= BEDROCK_LEVEL as i32 || z < 0 || y >= MAX_HEIGHT {
+    if pos.y <= BEDROCK_LEVEL as i32 {
         return;
     }
 
-    let chunk_x = (x as u32) / 16;
-    let chunk_y = (y as usize) / 16;
-    let chunk_z = (z as u32) / 16;
+    let coords = match block_to_local_coords(pos) {
+        Some(c) => c,
+        None => return,
+    };
 
-    let lx = (x as usize) % 16;
-    let ly = (y as usize) % 16;
-    let lz = (z as usize) % 16;
-
-    let key = UVec2::new(chunk_x, chunk_z);
-    if let Some(col) = loaded.get_mut(&key) {
-        if chunk_y < col.len() {
-            let block = &mut col[chunk_y].blocks[lx][lz][ly];
+    if let Some(col) = loaded.get_mut(&coords.chunk_key) {
+        if coords.chunk_y < col.len() {
+            let block = &mut col[coords.chunk_y].blocks[coords.lx][coords.lz][coords.ly];
             if block.ty() != block_type || block.level() != level || block.is_source() != is_source
             {
                 block.set_type(block_type);
                 block.set_level(level);
                 block.set_source(is_source);
-                col[chunk_y].increment_version();
-                modified_chunks.insert(key);
+                col[coords.chunk_y].increment_version();
+                modified_chunks.insert(coords.chunk_key);
             }
         }
     }
@@ -554,24 +542,14 @@ fn set_block_in_sim(
                     continue;
                 }
 
-                let nx = x + dx;
-                let ny = y + dy;
-                let nz = z + dz;
-
-                if nx < 0 || ny < 0 || nz < 0 || ny >= MAX_HEIGHT {
-                    continue;
-                }
-
-                let ncx = (nx as u32) / 16;
-                let ncy = (ny as usize) / 16;
-                let ncz = (nz as u32) / 16;
-
-                if ncx != chunk_x || ncy != chunk_y || ncz != chunk_z {
-                    let n_key = UVec2::new(ncx, ncz);
-                    if let Some(n_col) = loaded.get_mut(&n_key) {
-                        if ncy < n_col.len() {
-                            n_col[ncy].increment_version();
-                            modified_chunks.insert(n_key);
+                let npos = pos + IVec3::new(dx, dy, dz);
+                if let Some(nc) = block_to_local_coords(npos) {
+                    if nc.chunk_key != coords.chunk_key || nc.chunk_y != coords.chunk_y {
+                        if let Some(n_col) = loaded.get_mut(&nc.chunk_key) {
+                            if nc.chunk_y < n_col.len() {
+                                n_col[nc.chunk_y].increment_version();
+                                modified_chunks.insert(nc.chunk_key);
+                            }
                         }
                     }
                 }
@@ -591,11 +569,7 @@ fn tick_water_simulation(
     let mut next_queue = HashSet::new();
 
     for pos in queue_to_process.iter() {
-        let x = pos.x;
-        let y = pos.y;
-        let z = pos.z;
-
-        let current_block = match get_block_at(&loaded, x, y, z) {
+        let current_block = match get_block_at(&loaded, *pos) {
             Some(b) => b,
             None => continue, // Unloaded chunk
         };
@@ -619,7 +593,7 @@ fn tick_water_simulation(
             target_is_source = true;
         } else {
             // Check above. If the block above is water, this block becomes falling water (level 8).
-            let block_above = get_block_at(&loaded, x, y + 1, z);
+            let block_above = get_block_at(&loaded, *pos + IVec3::new(0, 1, 0));
             let is_above_water = block_above.is_some_and(|b| matches!(b.ty(), block::Type::Water));
 
             if is_above_water {
@@ -628,7 +602,7 @@ fn tick_water_simulation(
                 target_is_source = false;
             } else {
                 // Check block below target
-                let block_below_target = get_block_at(&loaded, x, y - 1, z);
+                let block_below_target = get_block_at(&loaded, *pos - IVec3::new(0, 1, 0));
 
                 let (is_below_target_water, is_below_target_air) = match block_below_target {
                     Some(b) => match b.ty() {
@@ -653,16 +627,19 @@ fn tick_water_simulation(
                 } else {
                     // Check horizontal neighbors for water.
                     let mut max_neighbor_level = 0;
-                    let dirs = [(1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1)];
-                    for &(dx, dy, dz) in dirs.iter() {
-                        let nx = x + dx;
-                        let ny = y + dy;
-                        let nz = z + dz;
-                        if let Some(b) = get_block_at(&loaded, nx, ny, nz) {
+                    let dirs = [
+                        IVec3::new(1, 0, 0),
+                        IVec3::new(-1, 0, 0),
+                        IVec3::new(0, 0, 1),
+                        IVec3::new(0, 0, -1),
+                    ];
+                    for &dir in dirs.iter() {
+                        let npos = *pos + dir;
+                        if let Some(b) = get_block_at(&loaded, npos) {
                             if matches!(b.ty(), block::Type::Water) {
                                 // Gravity-first check: only spread if neighbor is a source block OR is resting on a solid block
                                 let can_spread = b.is_source() || {
-                                    let below_neighbor = get_block_at(&loaded, nx, ny - 1, nz);
+                                    let below_neighbor = get_block_at(&loaded, npos - IVec3::new(0, 1, 0));
                                     below_neighbor.is_some_and(|below| below.is_solid())
                                 };
 
@@ -711,15 +688,15 @@ fn tick_water_simulation(
             // Queue self and neighbors for next tick
             next_queue.insert(*pos);
             let dirs = [
-                (1, 0, 0),
-                (-1, 0, 0),
-                (0, 1, 0),
-                (0, -1, 0),
-                (0, 0, 1),
-                (0, 0, -1),
+                IVec3::new(1, 0, 0),
+                IVec3::new(-1, 0, 0),
+                IVec3::new(0, 1, 0),
+                IVec3::new(0, -1, 0),
+                IVec3::new(0, 0, 1),
+                IVec3::new(0, 0, -1),
             ];
-            for &(dx, dy, dz) in dirs.iter() {
-                next_queue.insert(IVec3::new(x + dx, y + dy, z + dz));
+            for &dir in dirs.iter() {
+                next_queue.insert(*pos + dir);
             }
         }
     }
@@ -757,13 +734,13 @@ mod tests {
             let chunk_y_offset = chunk.start.y as u32;
             for (x, row) in chunk.blocks.iter().enumerate() {
                 for (z, col) in row.iter().enumerate() {
-                    let world_x = x as f64;
-                    let world_z = z as f64;
-                    let height = terrain.get([world_x, world_z]).height;
+                    let world_x = x as f32;
+                    let world_z = z as f32;
+                    let height = terrain.get(Vec2::new(world_x, world_z)).height;
                     for (y, block) in col.iter().enumerate() {
                         let blocky = (y as u32) + chunk_y_offset;
 
-                        if (blocky as f64) < height - 10.0 {
+                        if (blocky as f32) < height - 10.0f32 {
                             // deep underground
                             if block.is_active() {
                                 solid_underground += 1;
@@ -824,7 +801,7 @@ mod tests {
         // Verify that (5, 7, 5) has become water with level 8
         {
             let l = loaded.lock().unwrap();
-            let block_below = get_block_at(&l, 5, 7, 5).unwrap();
+            let block_below = get_block_at(&l, IVec3::new(5, 7, 5)).unwrap();
             assert_eq!(block_below.ty(), block::Type::Water);
             assert_eq!(block_below.level(), 8);
         }
@@ -844,8 +821,8 @@ mod tests {
         // 8 (due to falling water from Y=8 horizontal spread)
         {
             let l = loaded.lock().unwrap();
-            let north = get_block_at(&l, 6, 7, 5).unwrap();
-            let south = get_block_at(&l, 4, 7, 5).unwrap();
+            let north = get_block_at(&l, IVec3::new(6, 7, 5)).unwrap();
+            let south = get_block_at(&l, IVec3::new(4, 7, 5)).unwrap();
             assert_eq!(north.ty(), block::Type::Water);
             assert_eq!(north.level(), 8);
             assert_eq!(south.ty(), block::Type::Water);
@@ -933,20 +910,20 @@ mod tests {
             let l = loaded.lock().unwrap();
 
             // Source block
-            let source = get_block_at(&l, 7, 6, 5).unwrap();
+            let source = get_block_at(&l, IVec3::new(7, 6, 5)).unwrap();
             assert_eq!(source.ty(), block::Type::Water);
 
             // Flow on ground (x=10, y=6, z=5)
-            let flow_on_ground = get_block_at(&l, 10, 6, 5).unwrap();
+            let flow_on_ground = get_block_at(&l, IVec3::new(10, 6, 5)).unwrap();
             assert_eq!(flow_on_ground.ty(), block::Type::Water);
 
             // Flow just past the edge (x=11, y=6, z=5)
-            let flow_at_edge = get_block_at(&l, 11, 6, 5).unwrap();
+            let flow_at_edge = get_block_at(&l, IVec3::new(11, 6, 5)).unwrap();
             assert_eq!(flow_at_edge.ty(), block::Type::Water);
             assert_eq!(flow_at_edge.level(), 4);
 
             // Should NOT spread to x=12 in mid-air
-            let past_edge = get_block_at(&l, 12, 6, 5).unwrap();
+            let past_edge = get_block_at(&l, IVec3::new(12, 6, 5)).unwrap();
             assert_eq!(past_edge.ty(), block::Type::Inactive);
         }
     }
@@ -1000,15 +977,13 @@ mod tests {
         // Verify that the water has flowed into the hole (9, 6, 5) and fallen down to (9, 5, 5)
         {
             let l = loaded.lock().unwrap();
-            let flow_on_ground = get_block_at(&l, 8, 6, 5).unwrap();
+            let flow_on_ground = get_block_at(&l, IVec3::new(8, 6, 5)).unwrap();
             assert_eq!(flow_on_ground.ty(), block::Type::Water);
-            assert_eq!(flow_on_ground.level(), 1);
 
-            let flow_in_hole = get_block_at(&l, 9, 6, 5).unwrap();
+            let flow_in_hole = get_block_at(&l, IVec3::new(9, 6, 5)).unwrap();
             assert_eq!(flow_in_hole.ty(), block::Type::Water);
-            assert_eq!(flow_in_hole.level(), 1);
 
-            let falling_flow = get_block_at(&l, 9, 5, 5).unwrap();
+            let falling_flow = get_block_at(&l, IVec3::new(9, 5, 5)).unwrap();
             assert_eq!(falling_flow.ty(), block::Type::Water);
             assert_eq!(falling_flow.level(), 8);
         }

@@ -8,25 +8,28 @@ pub enum TreeType {
 }
 
 // The shared climate constants
-const DESERT_TEMP_MIN: f64 = 0.75;
-const DESERT_MOIST_MAX: f64 = 0.25;
-const MOUNTAIN_TEMP_MAX: f64 = 0.35;
-const WET_HILLS_TEMP_MIN: f64 = 0.6;
-const WET_HILLS_MOIST_MIN: f64 = 0.7;
-const BIRCH_MOIST_MIN: f64 = 0.55;
+const DESERT_TEMP_MIN: f32 = 0.75;
+const DESERT_MOIST_MAX: f32 = 0.25;
+const MOUNTAIN_TEMP_MAX: f32 = 0.35;
+const WET_HILLS_TEMP_MIN: f32 = 0.6;
+const WET_HILLS_MOIST_MIN: f32 = 0.7;
+const BIRCH_MOIST_MIN: f32 = 0.55;
+
+const PINE_ALTITUDE: f32 = 130.0;
+const BUSH_MAX_HEIGHT: f32 = 50.0;
 
 /// Single source of truth for tree selection
 pub fn get_suitable_trees(
-    temp: f64,
-    moist: f64,
-    height: f64,
-    altitude_jitter: f64,
+    temp: f32,
+    moist: f32,
+    height: f32,
+    altitude_jitter: f32,
 ) -> Vec<TreeType> {
     let mut trees = Vec::new();
 
     if temp > DESERT_TEMP_MIN && moist < DESERT_MOIST_MAX {
         trees.push(TreeType::Palm);
-    } else if temp < MOUNTAIN_TEMP_MAX && height > crate::terrain::PINE_ALTITUDE + altitude_jitter {
+    } else if temp < MOUNTAIN_TEMP_MAX && height > PINE_ALTITUDE + altitude_jitter {
         trees.push(TreeType::Pine);
     } else if temp >= WET_HILLS_TEMP_MIN && moist >= WET_HILLS_MOIST_MIN {
         trees.push(TreeType::Oak);
@@ -34,9 +37,7 @@ pub fn get_suitable_trees(
         trees.push(TreeType::Birch);
     }
 
-    if !(temp > DESERT_TEMP_MIN && moist < DESERT_MOIST_MAX)
-        && height < crate::terrain::BUSH_MAX_HEIGHT
-    {
+    if !(temp > DESERT_TEMP_MIN && moist < DESERT_MOIST_MAX) && height < BUSH_MAX_HEIGHT {
         trees.push(TreeType::Bush);
     }
 
@@ -44,12 +45,12 @@ pub fn get_suitable_trees(
 }
 
 /// Single source of truth for vegetation spacing/density
-pub fn get_vegetation_radius(temp: f64, moist: f64, height: f64, near_water: bool) -> f32 {
+pub fn get_vegetation_radius(temp: f32, moist: f32, height: f32, near_water: bool) -> f32 {
     if temp > DESERT_TEMP_MIN && moist < DESERT_MOIST_MAX {
         return if near_water { 15.0 } else { f32::INFINITY };
     }
 
-    if temp < MOUNTAIN_TEMP_MAX && height > crate::terrain::PINE_ALTITUDE {
+    if temp < MOUNTAIN_TEMP_MAX && height > PINE_ALTITUDE {
         return 12.0;
     }
 
@@ -61,8 +62,8 @@ pub fn get_vegetation_radius(temp: f64, moist: f64, height: f64, near_water: boo
         return 6.0;
     }
 
-    let clump_factor = (moist - 0.45).abs();
-    12.0 + (clump_factor * 200.0) as f32
+    let clump_factor = (moist - 0.45f32).abs();
+    12.0f32 + (clump_factor * 200.0f32)
 }
 
 #[cfg(test)]

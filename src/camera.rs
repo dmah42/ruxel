@@ -1,6 +1,6 @@
 use std::{f32::consts::FRAC_PI_2, time::Duration};
 
-use crate::chunks::WATER_LEVEL;
+use crate::terrain::WATER_LEVEL;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use winit::{event::ElementState, keyboard::KeyCode};
@@ -197,8 +197,9 @@ impl Camera {
         let mut normal = glam::IVec3::ZERO;
 
         while current_distance <= max_distance {
-            if chunks.is_solid_at(x, y, z) {
-                return Some((glam::IVec3::new(x, y, z), normal));
+            let pos = glam::IVec3::new(x, y, z);
+            if chunks.is_solid_at(pos) {
+                return Some((pos, normal));
             }
 
             if t_max_x < t_max_y {
@@ -232,7 +233,14 @@ impl Camera {
     }
 
     pub fn update_physics(&mut self, chunks: &crate::chunks::Chunks, dt: Duration) {
-        if !chunks.is_chunk_loaded(self.position.x as i32, self.position.z as i32) {
+        let chunk_x = (self.position.x.floor() as i32).div_euclid(16);
+        let chunk_z = (self.position.z.floor() as i32).div_euclid(16);
+        if chunk_x < 0 || chunk_z < 0 {
+            self.velocity = Vec3::ZERO;
+            return;
+        }
+        let chunk_pos = glam::UVec2::new(chunk_x as u32, chunk_z as u32);
+        if !chunks.is_chunk_loaded(chunk_pos) {
             self.velocity = Vec3::ZERO;
             return;
         }
@@ -327,7 +335,7 @@ fn check_collision(
     for x in min_x..=max_x {
         for y in min_y..=max_y {
             for z in min_z..=max_z {
-                if chunks.is_solid_at(x, y, z) {
+                if chunks.is_solid_at(glam::IVec3::new(x, y, z)) {
                     return true;
                 }
             }
