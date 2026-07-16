@@ -11,6 +11,7 @@ check:
 	cargo clippy
 
 test: build
+	mkdir -p test_outputs
 	cargo test
 
 run: build
@@ -20,9 +21,11 @@ build_release: check
 	cargo build --release
 
 test_release: build_release
+	mkdir -p test_outputs
 	cargo test --release
 
 test_release_all: build_release
+	mkdir -p test_outputs
 	cargo test --release --features slow-tests
 
 run_release:
@@ -32,9 +35,11 @@ build_release_opt: check
 	cargo build --profile release-opt
 
 test_release_opt: build_release_opt
+	mkdir -p test_outputs
 	cargo test --profile release-opt
 
 test_release_opt_all: build_release_opt
+	mkdir -p test_outputs
 	cargo test --profile release-opt --features slow-tests
 
 wasm:
