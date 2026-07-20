@@ -25,7 +25,7 @@ it's written in rust.
      `chunk_load_radius` and `seed`. In the future, we should expand this to
      include:
      - Display settings: fullscreen mode, VSync.
-     - Gameplay settings: mouse sensitivity, keybindings.
+     - Gameplay settings: keybindings.
      - Graphics settings: shadow quality, anti-aliasing.
 1. **Climate**: Have the temperature/moisture maps get feedback from the
    generated terrain (e.g. rain shadows, altitude cooling). T+M also create

@@ -31,6 +31,7 @@ pub struct Config {
     pub fov: f32,
     pub window_width: u32,
     pub window_height: u32,
+    pub mouse_sensitivity: f32,
     pub active_world: String,
     #[serde(default = "default_sim_rate_ms")]
     pub sim_rate_ms: u64,
@@ -57,6 +58,7 @@ impl Default for Config {
             fov: 75.0,
             window_width: 1920,
             window_height: 1080,
+            mouse_sensitivity: 0.4,
             active_world: "funky_town".to_string(),
             sim_rate_ms: default_sim_rate_ms(),
             max_remesh_per_frame: default_max_remesh_per_frame(),
@@ -107,7 +109,7 @@ impl Config {
     }
 
     pub fn save(&self) {
-        if let Ok(toml_string) = toml::to_string(self) {
+        if let Ok(toml_string) = toml::to_string_pretty(self) {
             if let Err(e) = fs::write("config.toml", toml_string) {
                 eprintln!("Failed to write config.toml: {}", e);
             }

@@ -151,7 +151,7 @@ impl Ruxel {
             state,
             scene,
             camera,
-            camera_controller: camera::Controller::new(),
+            camera_controller: camera::Controller::new(config.mouse_sensitivity),
             mouse_pressed: false,
             mouse_grabbed: false,
             received_mouse_motion: false,
