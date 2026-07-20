@@ -29,6 +29,8 @@ pub struct Config {
     pub chunk_load_radius: u32,
     pub log_level: String,
     pub fov: f32,
+    pub window_width: u32,
+    pub window_height: u32,
     pub active_world: String,
     #[serde(default = "default_sim_rate_ms")]
     pub sim_rate_ms: u64,
@@ -53,6 +55,8 @@ impl Default for Config {
             chunk_load_radius: 3,
             log_level: "warn".to_string(),
             fov: 75.0,
+            window_width: 1920,
+            window_height: 1080,
             active_world: "funky_town".to_string(),
             sim_rate_ms: default_sim_rate_ms(),
             max_remesh_per_frame: default_max_remesh_per_frame(),

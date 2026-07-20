@@ -24,7 +24,7 @@ it's written in rust.
 1. **Expand Configuration File**: We now have a `config.toml` that handles
      `chunk_load_radius` and `seed`. In the future, we should expand this to
      include:
-     - Display settings: window resolution, fullscreen mode, VSync.
+     - Display settings: fullscreen mode, VSync.
      - Gameplay settings: mouse sensitivity, keybindings.
      - Graphics settings: shadow quality, anti-aliasing.
 1. **Climate**: Have the temperature/moisture maps get feedback from the
