@@ -382,7 +382,7 @@ impl Controller {
             rotate_vert: 0.0,
 
             speed: SPEED,
-            sensitivity: sensitivity,
+            sensitivity,
         }
     }
 
